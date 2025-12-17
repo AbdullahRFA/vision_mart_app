@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "168555285732",
+    "project_id": "vision-mart-app-a727d",
+    "storage_bucket": "vision-mart-app-a727d.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:168555285732:android:a916f46c634aa72a49f0f1",
+        "android_client_info": {
+          "package_name": "com.example.vision_mart_app"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCW2vN5Q3uKww33K-4FbxQA-uG2HuGi9Bo"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
