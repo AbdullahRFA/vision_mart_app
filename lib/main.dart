@@ -18,25 +18,81 @@ class VisionMartApp extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    // Listen to the auth state (Login vs Logout)
     final authState = ref.watch(authStateProvider);
 
     return MaterialApp(
       title: 'A & R Vision Mart',
+      debugShowCheckedModeBanner: false,
       theme: ThemeData(
         useMaterial3: true,
         colorScheme: ColorScheme.fromSeed(seedColor: Colors.blue),
       ),
-      darkTheme: ThemeData.dark(useMaterial3: true), // Theme Aware
+      darkTheme: ThemeData.dark(useMaterial3: true),
       themeMode: ThemeMode.system,
+      // Intelligently switch screens based on auth state
       home: authState.when(
         data: (user) {
           if (user != null) {
-            return const Scaffold(body: Center(child: Text("Dashboard (Coming Soon)")));
+            // User is Logged In -> Show Dashboard
+            return const DashboardScreen();
           }
+          // User is Logged Out -> Show Auth Screen
           return const AuthScreen();
         },
-        loading: () => const Scaffold(body: Center(child: CircularProgressIndicator())),
-        error: (e, trace) => Scaffold(body: Center(child: Text('Error: $e'))),
+        loading: () => const Scaffold(
+          body: Center(child: CircularProgressIndicator()),
+        ),
+        error: (e, trace) => Scaffold(
+          body: Center(child: Text('Error: $e')),
+        ),
+      ),
+    );
+  }
+}
+
+// Temporary Dashboard to test Logout
+class DashboardScreen extends ConsumerWidget {
+  const DashboardScreen({super.key});
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final user = ref.read(authServiceProvider).currentUser;
+
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Dashboard'),
+        actions: [
+          // LOGOUT BUTTON
+          IconButton(
+            icon: const Icon(Icons.logout),
+            tooltip: 'Logout',
+            onPressed: () {
+              // 1. Call the SignOut method
+              ref.read(authServiceProvider).signOut();
+              // 2. The StreamProvider in main.dart detects the change
+              // and automatically switches back to AuthScreen.
+            },
+          ),
+        ],
+      ),
+      body: Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Text(
+              'Welcome Back!',
+              style: Theme.of(context).textTheme.headlineSmall,
+            ),
+            const SizedBox(height: 8),
+            Text(
+              user?.email ?? 'User', // Show the logged-in email
+              style: Theme.of(context).textTheme.bodyLarge,
+            ),
+            const SizedBox(height: 30),
+            const Text("Inventory & Sales modules coming next..."),
+          ],
+        ),
       ),
     );
   }
