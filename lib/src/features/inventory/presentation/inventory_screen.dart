@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../data/inventory_repository.dart';
 import '../domain/product_model.dart';
+import '../../sales/presentation/sell_product_screen.dart';
 
 class InventoryScreen extends ConsumerStatefulWidget {
   const InventoryScreen({super.key});
@@ -120,6 +121,14 @@ class _ProductCard extends StatelessWidget {
         trailing: const Icon(Icons.arrow_forward_ios, size: 16),
         onTap: () {
           // Future: Open Product Detail / Edit Page
+          // NAVIGATE TO SELL SCREEN
+          // Note: We need to import the file first
+          Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (_) => SellProductScreen(product: product),
+            ),
+          );
         },
       ),
     );
