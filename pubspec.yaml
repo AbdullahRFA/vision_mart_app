@@ -50,10 +50,11 @@ dependencies:
   uuid: ^4.4.0  # For generating unique Invoice IDs
 
   # PDF & Printing
-  pdf: ^3.10.0
-  printing: ^5.13.0
-  path_provider: ^2.1.3
+  pdf: ^3.11.3
+  printing: ^5.14.2
+  path_provider: ^2.1.5
   go_router: ^17.0.1
+  open_file: ^3.5.10
 
 dev_dependencies:
   flutter_test:

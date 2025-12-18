@@ -2,9 +2,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../inventory/domain/product_model.dart';
 import '../data/sales_repository.dart';
+import 'pdf_generator.dart'; // 👈 IMPORT THIS
 
 class SellProductScreen extends ConsumerStatefulWidget {
-  final Product product; // We pass the product we want to sell
+  final Product product;
 
   const SellProductScreen({super.key, required this.product});
 
@@ -20,7 +21,7 @@ class _SellProductScreenState extends ConsumerState<SellProductScreen> {
   final _qtyController = TextEditingController(text: '1');
   final _discountController = TextEditingController(text: '0');
 
-  String _paymentStatus = 'Cash'; // Default
+  String _paymentStatus = 'Cash';
   double _finalSellingPrice = 0.0;
   bool _isLoading = false;
 
@@ -48,6 +49,8 @@ class _SellProductScreenState extends ConsumerState<SellProductScreen> {
     if (!_formKey.currentState!.validate()) return;
 
     final qty = int.parse(_qtyController.text);
+
+    // Check Stock
     if (qty > widget.product.currentStock) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('Error: Not enough stock! Max is ${widget.product.currentStock}'), backgroundColor: Colors.red),
@@ -58,6 +61,7 @@ class _SellProductScreenState extends ConsumerState<SellProductScreen> {
     setState(() => _isLoading = true);
 
     try {
+      // 1. Perform the Sale Logic (Database Update)
       await ref.read(salesRepositoryProvider).sellProduct(
         product: widget.product,
         customerName: _customerNameController.text.trim(),
@@ -67,11 +71,54 @@ class _SellProductScreenState extends ConsumerState<SellProductScreen> {
         paymentStatus: _paymentStatus,
       );
 
+      // 2. Capture values for the PDF before we clear/close anything
+      final name = _customerNameController.text.trim();
+      final phone = _customerPhoneController.text.trim();
+      final discount = double.parse(_discountController.text.trim());
+      final finalPrice = _finalSellingPrice;
+
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Sale Successful! Inventory Updated.')),
+        // 3. Show Success & Ask to Print
+        showDialog(
+          context: context,
+          barrierDismissible: false, // Force user to choose
+          builder: (ctx) => AlertDialog(
+            title: const Text("Sale Successful!"),
+            content: const Text("Inventory updated. Do you want to print the Invoice?"),
+            actions: [
+              TextButton(
+                onPressed: () {
+                  Navigator.pop(ctx); // Close Dialog
+                  Navigator.pop(context); // Close Sell Screen
+                },
+                child: const Text("No, Close"),
+              ),
+              ElevatedButton.icon(
+                icon: const Icon(Icons.print),
+                label: const Text("Print / Share"),
+                onPressed: () {
+                  Navigator.pop(ctx); // Close Dialog
+
+                  // 4. Generate PDF
+                  PdfGenerator.generateInvoice(
+                    customerName: name,
+                    customerPhone: phone,
+                    productName: widget.product.name,
+                    productModel: widget.product.model,
+                    quantity: qty,
+                    mrp: widget.product.marketPrice,
+                    discountPercent: discount,
+                    finalPrice: finalPrice,
+                    paymentStatus: _paymentStatus,
+                  );
+
+                  // After printing/sharing, close the Sell Screen
+                  Navigator.pop(context);
+                },
+              )
+            ],
+          ),
         );
-        Navigator.pop(context); // Close screen
       }
     } catch (e) {
       if (mounted) {
