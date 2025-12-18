@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'firebase_options.dart';
 import 'src/features/authentication/data/auth_repository.dart';
 import 'src/features/authentication/presentation/auth_screen.dart';
+import 'src/features/inventory/presentation/receive_product_screen.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -91,6 +92,22 @@ class DashboardScreen extends ConsumerWidget {
             ),
             const SizedBox(height: 30),
             const Text("Inventory & Sales modules coming next..."),
+            // ... inside the Column children of DashboardScreen
+            const SizedBox(height: 30),
+            ElevatedButton.icon(
+              icon: const Icon(Icons.add_box),
+              label: const Text("Receive Product"),
+              style: ElevatedButton.styleFrom(
+                padding: const EdgeInsets.symmetric(horizontal: 30, vertical: 15),
+              ),
+              onPressed: () {
+                Navigator.push(
+                    context,
+                    MaterialPageRoute(builder: (_) => const ReceiveProductScreen())
+                );
+              },
+            ),
+// ...
           ],
         ),
       ),
