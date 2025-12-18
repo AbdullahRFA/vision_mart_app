@@ -7,8 +7,7 @@ import 'src/features/authentication/presentation/auth_screen.dart';
 import 'src/features/inventory/presentation/receive_product_screen.dart';
 import 'src/features/inventory/presentation/inventory_screen.dart';
 import 'src/features/analytics/presentation/analytics_screen.dart';
-
-
+import 'src/features/due_management/presentation/due_screen.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -140,6 +139,22 @@ class DashboardScreen extends ConsumerWidget {
                 Navigator.push(
                     context,
                     MaterialPageRoute(builder: (_) => const AnalyticsScreen())
+                );
+              },
+            ),
+            const SizedBox(height: 16),
+            ElevatedButton.icon(
+              icon: const Icon(Icons.account_balance_wallet),
+              label: const Text("Due List (Khata)"),
+              style: ElevatedButton.styleFrom(
+                padding: const EdgeInsets.symmetric(horizontal: 30, vertical: 15),
+                backgroundColor: Colors.red.shade50,
+                foregroundColor: Colors.red,
+              ),
+              onPressed: () {
+                Navigator.push(
+                    context,
+                    MaterialPageRoute(builder: (_) => const DueScreen())
                 );
               },
             ),
