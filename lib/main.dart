@@ -5,7 +5,7 @@ import 'firebase_options.dart';
 import 'src/features/authentication/data/auth_repository.dart';
 import 'src/features/authentication/presentation/auth_screen.dart';
 import 'src/features/inventory/presentation/receive_product_screen.dart';
-
+import 'src/features/inventory/presentation/inventory_screen.dart';
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await Firebase.initializeApp(
@@ -107,6 +107,23 @@ class DashboardScreen extends ConsumerWidget {
                 );
               },
             ),
+            // ... inside the Column, below the "Receive Product" button
+            const SizedBox(height: 16),
+            ElevatedButton.icon(
+              icon: const Icon(Icons.inventory),
+              label: const Text("View Inventory"),
+              style: ElevatedButton.styleFrom(
+                padding: const EdgeInsets.symmetric(horizontal: 30, vertical: 15),
+              ),
+              onPressed: () {
+                Navigator.push(
+                    context,
+                    MaterialPageRoute(builder: (_) => const InventoryScreen()) // Import the file!
+                );
+              },
+            ),
+// ...
+
 // ...
           ],
         ),

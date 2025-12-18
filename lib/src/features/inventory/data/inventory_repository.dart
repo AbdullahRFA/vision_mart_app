@@ -1,4 +1,5 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:flutter/cupertino.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../authentication/data/auth_repository.dart';
 import '../domain/product_model.dart';
@@ -86,4 +87,39 @@ class InventoryRepository {
 
     await batch.commit();
   }
+
+  // ... inside InventoryRepository class
+
+  // 2. Stream of Products (Real-time connection)
+  // 2. Stream of Products (Real-time connection)
+  Stream<List<Product>> watchInventory() {
+    return _firestore
+        .collection('products')
+    // .orderBy('lastUpdated', descending: true) // Keep commented out for now
+        .snapshots()
+        .map((snapshot) {
+
+      // 👇 DEBUG LOGGING
+      debugPrint("📦 FIRESTORE UPDATE RECEIVED! Doc Count: ${snapshot.docs.length}");
+      for (var doc in snapshot.docs) {
+        debugPrint("   📄 Doc ID: ${doc.id} | Stock: ${doc.data()['currentStock']}");
+      }
+
+      return snapshot.docs.map((doc) {
+        try {
+          return Product.fromMap(doc.id, doc.data());
+        } catch (e) {
+          debugPrint("   🔴 Error parsing doc ${doc.id}: $e");
+          rethrow;
+        }
+      }).toList();
+    });
+  }
+
 }
+
+// Stream Provider for the UI to listen to
+final inventoryStreamProvider = StreamProvider<List<Product>>((ref) {
+  final repository = ref.watch(inventoryRepositoryProvider);
+  return repository.watchInventory();
+});

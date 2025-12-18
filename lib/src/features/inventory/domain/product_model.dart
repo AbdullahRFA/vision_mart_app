@@ -33,7 +33,9 @@ class Product {
       marketPrice: (map['marketPrice'] ?? 0).toDouble(),
       commissionPercent: (map['commissionPercent'] ?? 0).toDouble(),
       buyingPrice: (map['buyingPrice'] ?? 0).toDouble(),
-      currentStock: map['currentStock'] ?? 0,
+
+      // 👇 CHANGED: Handles int, double, or String safely
+      currentStock: (map['currentStock'] as num?)?.toInt() ?? 0,
     );
   }
 
