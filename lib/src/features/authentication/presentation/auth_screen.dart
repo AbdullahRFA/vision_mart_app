@@ -12,26 +12,20 @@ class AuthScreen extends ConsumerStatefulWidget {
 class _AuthScreenState extends ConsumerState<AuthScreen> {
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
-  bool _isLogin = true; // Toggle between Login and Register
   bool _isLoading = false;
 
-  Future<void> _submit() async {
+  Future<void> _login() async {
     setState(() => _isLoading = true);
-    final authService = ref.read(authServiceProvider);
-    final email = _emailController.text.trim();
-    final password = _passwordController.text.trim();
-
     try {
-      if (_isLogin) {
-        await authService.signIn(email, password);
-      } else {
-        await authService.register(email, password);
-      }
-      // Navigation is handled by authStateProvider listening in main.dart
+      await ref.read(authServiceProvider).signIn(
+        _emailController.text.trim(),
+        _passwordController.text.trim(),
+      );
+      // Navigation is handled automatically by main.dart
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(e.toString()), backgroundColor: Colors.red),
+          SnackBar(content: Text("Login Failed: ${e.toString()}"), backgroundColor: Colors.red),
         );
       }
     } finally {
@@ -49,18 +43,18 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
             mainAxisAlignment: MainAxisAlignment.center,
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              const Icon(Icons.inventory_2, size: 80, color: Colors.blueAccent),
+              const Icon(Icons.security, size: 80, color: Colors.blueAccent),
               const SizedBox(height: 20),
               Text(
-                'A & R Vision Mart',
+                'A & R Vision Mart\nAuthorized Access Only',
                 textAlign: TextAlign.center,
-                style: Theme.of(context).textTheme.headlineMedium,
+                style: Theme.of(context).textTheme.headlineSmall,
               ),
               const SizedBox(height: 40),
               TextField(
                 controller: _emailController,
                 decoration: const InputDecoration(
-                  labelText: 'Email',
+                  labelText: 'Admin Email',
                   border: OutlineInputBorder(),
                   prefixIcon: Icon(Icons.email),
                 ),
@@ -78,19 +72,21 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
               ),
               const SizedBox(height: 24),
               ElevatedButton(
-                onPressed: _isLoading ? null : _submit,
+                onPressed: _isLoading ? null : _login,
                 style: ElevatedButton.styleFrom(
                   padding: const EdgeInsets.symmetric(vertical: 16),
+                  backgroundColor: Colors.blueAccent,
+                  foregroundColor: Colors.white,
                 ),
                 child: _isLoading
-                    ? const CircularProgressIndicator()
-                    : Text(_isLogin ? 'Login' : 'Register'),
+                    ? const CircularProgressIndicator(color: Colors.white)
+                    : const Text('SECURE LOGIN'),
               ),
-              TextButton(
-                onPressed: () => setState(() => _isLogin = !_isLogin),
-                child: Text(_isLogin
-                    ? 'Create new account'
-                    : 'I already have an account'),
+              const SizedBox(height: 20),
+              const Text(
+                "Note: New accounts can only be created by the System Administrator manually.",
+                textAlign: TextAlign.center,
+                style: TextStyle(color: Colors.grey, fontSize: 12),
               ),
             ],
           ),
