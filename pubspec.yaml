@@ -55,6 +55,7 @@ dependencies:
   path_provider: ^2.1.5
   go_router: ^17.0.1
   open_file: ^3.5.10
+  flutter_launcher_icons: ^0.13.1
 
 dev_dependencies:
   flutter_test:
@@ -106,3 +107,26 @@ flutter:
   #
   # For details regarding fonts from package dependencies,
   # see https://flutter.dev/to/font-from-package
+
+
+flutter_launcher_icons:
+  android: "launcher_icon"
+  ios: true
+  image_path: "assets/icon/app_icon.png"
+  min_sdk_android: 21
+  # Remove the adaptive_icon lines for now to ensure it works first
+
+# Add this at the very bottom of pubspec.yaml
+
+flutter_native_splash:
+  color: "#ffffff" # Background color (White)
+  image: "assets/icon/app_icon.png" # The logo to show in the center
+  branding: "assets/icon/app_icon.png" # Keeps logo on older Android versions
+  color_dark: "#121212" # Background for Dark Mode users
+  image_dark: "assets/icon/app_icon.png" # Logo for Dark Mode
+
+  android_12:
+    image: "assets/icon/app_icon.png"
+    icon_background_color: "#ffffff"
+    image_dark: "assets/icon/app_icon.png"
+    icon_background_color_dark: "#121212"
