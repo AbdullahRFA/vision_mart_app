@@ -6,6 +6,10 @@ import 'src/features/authentication/data/auth_repository.dart';
 import 'src/features/authentication/presentation/auth_screen.dart';
 import 'src/features/inventory/presentation/receive_product_screen.dart';
 import 'src/features/inventory/presentation/inventory_screen.dart';
+import 'src/features/analytics/presentation/analytics_screen.dart';
+
+
+
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await Firebase.initializeApp(
@@ -122,6 +126,24 @@ class DashboardScreen extends ConsumerWidget {
                 );
               },
             ),
+            // ... inside the Column, below "View Inventory"
+            const SizedBox(height: 16),
+            ElevatedButton.icon(
+              icon: const Icon(Icons.bar_chart),
+              label: const Text("Business Report (Today)"),
+              style: ElevatedButton.styleFrom(
+                padding: const EdgeInsets.symmetric(horizontal: 30, vertical: 15),
+                backgroundColor: Colors.indigo.shade50, // Slight visual distinction
+                foregroundColor: Colors.indigo,
+              ),
+              onPressed: () {
+                Navigator.push(
+                    context,
+                    MaterialPageRoute(builder: (_) => const AnalyticsScreen())
+                );
+              },
+            ),
+// ...
 // ...
 
 // ...
