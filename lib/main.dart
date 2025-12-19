@@ -6,17 +6,15 @@ import 'firebase_options.dart';
 import 'src/features/authentication/data/auth_repository.dart';
 import 'src/features/authentication/presentation/auth_screen.dart';
 import 'src/features/inventory/presentation/receive_product_screen.dart';
-import 'src/features/inventory/presentation/inventory_screen.dart';
+import 'src/features/inventory/presentation/inventory_screen.dart'; // 👈 Important Import
 import 'src/features/analytics/presentation/analytics_screen.dart';
 import 'src/features/due_management/presentation/due_screen.dart';
 
-// 👇 1. FIXED: Use Notifier instead of StateProvider (Riverpod 3.0 compat)
 class ThemeModeNotifier extends Notifier<ThemeMode> {
   @override
   ThemeMode build() {
-    return ThemeMode.system; // Default start state
+    return ThemeMode.system;
   }
-
   void toggle() {
     state = state == ThemeMode.dark ? ThemeMode.light : ThemeMode.dark;
   }
@@ -38,26 +36,19 @@ class VisionMartApp extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final authState = ref.watch(authStateProvider);
-    // 👇 2. WATCH THE THEME PROVIDER
     final themeMode = ref.watch(themeModeProvider);
-
-    // --- DESIGN SYSTEM CONSTANTS ---
-    const primarySeed = Color(0xFF2563EB); // Royal Blue
+    const primarySeed = Color(0xFF2563EB);
 
     return MaterialApp(
       title: 'A & R Vision Mart',
       debugShowCheckedModeBanner: false,
-
-      // 👇 3. USE THE WATCHED THEME MODE
       themeMode: themeMode,
-
-      // LIGHT THEME
       theme: ThemeData(
         useMaterial3: true,
         brightness: Brightness.light,
         colorScheme: ColorScheme.fromSeed(seedColor: primarySeed),
         textTheme: GoogleFonts.poppinsTextTheme(ThemeData.light().textTheme),
-        scaffoldBackgroundColor: const Color(0xFFF8FAFC), // Light Slate
+        scaffoldBackgroundColor: const Color(0xFFF8FAFC),
         appBarTheme: const AppBarTheme(
           centerTitle: true,
           elevation: 0,
@@ -79,18 +70,16 @@ class VisionMartApp extends ConsumerWidget {
           margin: EdgeInsets.symmetric(vertical: 8, horizontal: 16),
         ),
       ),
-
-      // DARK THEME
       darkTheme: ThemeData(
         useMaterial3: true,
         brightness: Brightness.dark,
         colorScheme: ColorScheme.fromSeed(
           seedColor: primarySeed,
           brightness: Brightness.dark,
-          surface: const Color(0xFF0F172A), // Slate 900
+          surface: const Color(0xFF0F172A),
         ),
         textTheme: GoogleFonts.poppinsTextTheme(ThemeData.dark().textTheme),
-        scaffoldBackgroundColor: const Color(0xFF020617), // Deep Dark
+        scaffoldBackgroundColor: const Color(0xFF020617),
         appBarTheme: const AppBarTheme(
           centerTitle: true,
           elevation: 0,
@@ -99,12 +88,11 @@ class VisionMartApp extends ConsumerWidget {
           titleTextStyle: TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.bold),
         ),
         cardTheme: const CardThemeData(
-          color: Color(0xFF1E293B), // Slate 800
+          color: Color(0xFF1E293B),
           elevation: 4,
           margin: EdgeInsets.symmetric(vertical: 8, horizontal: 16),
         ),
       ),
-
       home: authState.when(
         data: (user) => user != null ? const DashboardScreen() : const AuthScreen(),
         loading: () => const Scaffold(body: Center(child: CircularProgressIndicator())),
@@ -120,14 +108,12 @@ class DashboardScreen extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final user = ref.read(authServiceProvider).currentUser;
-    // Helper to check current effective brightness
     final isDark = Theme.of(context).brightness == Brightness.dark;
 
     return Scaffold(
       appBar: AppBar(
         title: const Text('Dashboard'),
         actions: [
-          // 👇 4. FIXED: TOGGLE BUTTON USES NOTIFIER METHOD
           IconButton(
             tooltip: isDark ? "Switch to Light Mode" : "Switch to Dark Mode",
             icon: Icon(
@@ -135,7 +121,6 @@ class DashboardScreen extends ConsumerWidget {
               color: isDark ? Colors.yellow : Colors.grey[800],
             ),
             onPressed: () {
-              // Call the toggle method on the notifier
               ref.read(themeModeProvider.notifier).toggle();
             },
           ),
@@ -151,7 +136,6 @@ class DashboardScreen extends ConsumerWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // Welcome Section
             Container(
               padding: const EdgeInsets.all(20),
               decoration: BoxDecoration(
@@ -164,11 +148,7 @@ class DashboardScreen extends ConsumerWidget {
                 ),
                 borderRadius: BorderRadius.circular(20),
                 boxShadow: [
-                  BoxShadow(
-                    color: Colors.blue.withOpacity(0.3),
-                    blurRadius: 10,
-                    offset: const Offset(0, 5),
-                  ),
+                  BoxShadow(color: Colors.blue.withOpacity(0.3), blurRadius: 10, offset: const Offset(0, 5)),
                 ],
               ),
               child: Row(
@@ -195,12 +175,9 @@ class DashboardScreen extends ConsumerWidget {
                 ],
               ),
             ),
-
             const SizedBox(height: 30),
             const Text("Quick Actions", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
             const SizedBox(height: 16),
-
-            // Grid Menu
             GridView.count(
               shrinkWrap: true,
               physics: const NeverScrollableScrollPhysics(),
@@ -213,25 +190,26 @@ class DashboardScreen extends ConsumerWidget {
                   title: "Receive Stock",
                   icon: Icons.add_box_rounded,
                   color: Colors.blue,
-                  onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const ReceiveProductScreen())),
+                  onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => ReceiveProductScreen())),
                 ),
                 _DashboardCard(
                   title: "Inventory",
                   icon: Icons.inventory_2_rounded,
                   color: Colors.purple,
-                  onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const InventoryScreen())),
+                  // 👇 NO CONST HERE
+                  onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => InventoryScreen())),
                 ),
                 _DashboardCard(
                   title: "Sales Report",
                   icon: Icons.bar_chart_rounded,
                   color: Colors.orange,
-                  onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const AnalyticsScreen())),
+                  onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => AnalyticsScreen())),
                 ),
                 _DashboardCard(
                   title: "Due List",
                   icon: Icons.account_balance_wallet_rounded,
                   color: Colors.red,
-                  onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const DueScreen())),
+                  onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => DueScreen())),
                 ),
               ],
             ),
@@ -248,12 +226,7 @@ class _DashboardCard extends StatelessWidget {
   final Color color;
   final VoidCallback onTap;
 
-  const _DashboardCard({
-    required this.title,
-    required this.icon,
-    required this.color,
-    required this.onTap,
-  });
+  const _DashboardCard({required this.title, required this.icon, required this.color, required this.onTap});
 
   @override
   Widget build(BuildContext context) {

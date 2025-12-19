@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../authentication/data/auth_repository.dart';
 import '../domain/product_model.dart';
 
+// 1. Repository Provider
 final inventoryRepositoryProvider = Provider((ref) => InventoryRepository(FirebaseFirestore.instance, ref));
 
 class InventoryRepository {
@@ -12,7 +13,7 @@ class InventoryRepository {
 
   InventoryRepository(this._firestore, this._ref);
 
-  // 1. Receive Product Logic
+  // Single Product Receive
   Future<void> receiveProduct({
     required String name,
     required String model,
@@ -22,103 +23,100 @@ class InventoryRepository {
     required double commission,
     required int quantity,
   }) async {
-    final user = _ref.read(authServiceProvider).currentUser;
-    if (user == null) throw Exception("User not logged in");
-
-    // Auto-Calculate Buying Price
-    final double buyingPrice = mrp - (mrp * (commission / 100));
-
-    final batch = _firestore.batch();
-
-    // A. Check if product already exists (by Model Number)
-    final querySnapshot = await _firestore
-        .collection('products')
-        .where('model', isEqualTo: model)
-        .limit(1)
-        .get();
-
-    DocumentReference productRef;
-    int oldStock = 0;
-
-    if (querySnapshot.docs.isNotEmpty) {
-      // UPDATE EXISTING PRODUCT
-      final doc = querySnapshot.docs.first;
-      productRef = doc.reference;
-      oldStock = doc['currentStock'];
-
-      batch.update(productRef, {
-        'currentStock': FieldValue.increment(quantity),
-        'marketPrice': mrp, // Update prices to latest
-        'commissionPercent': commission,
-        'buyingPrice': buyingPrice,
-        'lastUpdated': FieldValue.serverTimestamp(),
-      });
-    } else {
-      // CREATE NEW PRODUCT
-      productRef = _firestore.collection('products').doc();
-      final newProduct = Product(
-        id: productRef.id,
+    await receiveBatchProducts([
+      Product(
+        id: '',
         name: name,
         model: model,
         category: category,
         capacity: capacity,
         marketPrice: mrp,
         commissionPercent: commission,
-        buyingPrice: buyingPrice,
+        buyingPrice: mrp - (mrp * (commission / 100)),
         currentStock: quantity,
-      );
-      batch.set(productRef, newProduct.toMap());
-    }
+      )
+    ]);
+  }
 
-    // B. Create an Audit Log (The "Memo" data)
-    final logRef = _firestore.collection('inventory_logs').doc();
-    batch.set(logRef, {
-      'type': 'RECEIVE',
-      'productId': productRef.id,
-      'productName': name,
-      'productModel': model,
-      'quantityAdded': quantity,
-      'oldStock': oldStock,
-      'newStock': oldStock + quantity,
-      'receivedBy': user.email,
+  // Batch Receive Logic
+  Future<void> receiveBatchProducts(List<Product> newProducts) async {
+    final user = _ref.read(authServiceProvider).currentUser;
+    if (user == null) throw Exception("User not logged in");
+
+    final batch = _firestore.batch();
+
+    final masterLogRef = _firestore.collection('inventory_batches').doc();
+    batch.set(masterLogRef, {
+      'type': 'INWARD_CHALLAN',
+      'itemCount': newProducts.length,
+      'createdBy': user.email,
       'timestamp': FieldValue.serverTimestamp(),
-      'buyingPriceSnapshot': buyingPrice, // Important for profit calc later
     });
+
+    for (var product in newProducts) {
+      final querySnapshot = await _firestore
+          .collection('products')
+          .where('model', isEqualTo: product.model)
+          .limit(1)
+          .get();
+
+      DocumentReference productRef;
+      int oldStock = 0;
+
+      if (querySnapshot.docs.isNotEmpty) {
+        final doc = querySnapshot.docs.first;
+        productRef = doc.reference;
+        oldStock = (doc['currentStock'] as num).toInt();
+
+        batch.update(productRef, {
+          'currentStock': FieldValue.increment(product.currentStock),
+          'marketPrice': product.marketPrice,
+          'commissionPercent': product.commissionPercent,
+          'buyingPrice': product.buyingPrice,
+          'lastUpdated': FieldValue.serverTimestamp(),
+        });
+      } else {
+        productRef = _firestore.collection('products').doc();
+        batch.set(productRef, product.toMap());
+      }
+
+      final logRef = _firestore.collection('inventory_logs').doc();
+      batch.set(logRef, {
+        'batchId': masterLogRef.id,
+        'type': 'RECEIVE',
+        'productId': productRef.id,
+        'productModel': product.model,
+        'productCategory': product.category,
+        'quantityAdded': product.currentStock,
+        'oldStock': oldStock,
+        'newStock': oldStock + product.currentStock,
+        'receivedBy': user.email,
+        'timestamp': FieldValue.serverTimestamp(),
+      });
+    }
 
     await batch.commit();
   }
 
-  // ... inside InventoryRepository class
-
-  // 2. Stream of Products (Real-time connection)
-  // 2. Stream of Products (Real-time connection)
+  // Watch Inventory Stream
   Stream<List<Product>> watchInventory() {
     return _firestore
         .collection('products')
-    // .orderBy('lastUpdated', descending: true) // Keep commented out for now
         .snapshots()
         .map((snapshot) {
-
-      // 👇 DEBUG LOGGING
-      debugPrint("📦 FIRESTORE UPDATE RECEIVED! Doc Count: ${snapshot.docs.length}");
-      for (var doc in snapshot.docs) {
-        debugPrint("   📄 Doc ID: ${doc.id} | Stock: ${doc.data()['currentStock']}");
-      }
-
       return snapshot.docs.map((doc) {
         try {
           return Product.fromMap(doc.id, doc.data());
         } catch (e) {
-          debugPrint("   🔴 Error parsing doc ${doc.id}: $e");
-          rethrow;
+          debugPrint("Error parsing doc ${doc.id}: $e");
+          return null;
         }
-      }).toList();
+      }).whereType<Product>().toList();
     });
   }
-
 }
 
-// Stream Provider for the UI to listen to
+// 👇 THIS PROVIDER WAS MISSING, CAUSING THE ERRORS
 final inventoryStreamProvider = StreamProvider<List<Product>>((ref) {
   final repository = ref.watch(inventoryRepositoryProvider);
   return repository.watchInventory();

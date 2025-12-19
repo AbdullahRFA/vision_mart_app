@@ -16,7 +16,7 @@ class _InventoryScreenState extends ConsumerState<InventoryScreen> {
   String _searchQuery = "";
   String _selectedCategory = "All";
 
-  // 👇 UPDATED: Filter Categories to match Vision Electronics list
+  // Vision Electronics Categories
   final List<String> _categories = [
     "All",
     "Low Stock",
@@ -42,6 +42,7 @@ class _InventoryScreenState extends ConsumerState<InventoryScreen> {
 
   @override
   Widget build(BuildContext context) {
+    // This watch relies on the provider we just fixed in the repository file
     final inventoryAsyncValue = ref.watch(inventoryStreamProvider);
     final isDark = Theme.of(context).brightness == Brightness.dark;
 
@@ -111,16 +112,13 @@ class _InventoryScreenState extends ConsumerState<InventoryScreen> {
             child: inventoryAsyncValue.when(
               data: (products) {
                 final filteredProducts = products.where((p) {
-                  // Search Filter
                   final matchesSearch = p.name.toLowerCase().contains(_searchQuery) ||
                       p.model.toLowerCase().contains(_searchQuery);
                   if (!matchesSearch) return false;
 
-                  // Category Filter
                   if (_selectedCategory == "All") return true;
                   if (_selectedCategory == "Low Stock") return p.currentStock < 5;
 
-                  // Exact match preferred for categories, but we use contains for safety
                   return p.category.toLowerCase().contains(_selectedCategory.toLowerCase()) ||
                       _selectedCategory.toLowerCase().contains(p.category.toLowerCase());
                 }).toList();
@@ -132,10 +130,7 @@ class _InventoryScreenState extends ConsumerState<InventoryScreen> {
                       children: [
                         Icon(Icons.inventory_2_outlined, size: 80, color: Colors.grey.withOpacity(0.3)),
                         const SizedBox(height: 16),
-                        Text(
-                          "No products found",
-                          style: TextStyle(color: Colors.grey.withOpacity(0.8), fontSize: 16),
-                        ),
+                        Text("No products found", style: TextStyle(color: Colors.grey.withOpacity(0.8), fontSize: 16)),
                       ],
                     ),
                   );
@@ -167,10 +162,9 @@ class _ProductCard extends StatelessWidget {
     final stockColor = isLowStock ? Colors.red : Colors.green;
     final isDark = Theme.of(context).brightness == Brightness.dark;
 
-    // Helper to pick icon based on category
     IconData getIconForCategory(String cat) {
       final c = cat.toLowerCase();
-      if (c.contains('tv') || c.contains('television')) return Icons.tv_rounded;
+      if (c.contains('tv')) return Icons.tv_rounded;
       if (c.contains('fridge') || c.contains('refrigerator')) return Icons.kitchen_rounded;
       if (c.contains('ac') || c.contains('air conditioner')) return Icons.ac_unit_rounded;
       if (c.contains('wash')) return Icons.local_laundry_service_rounded;
@@ -208,7 +202,6 @@ class _ProductCard extends StatelessWidget {
             padding: const EdgeInsets.all(16),
             child: Row(
               children: [
-                // Icon / Avatar
                 Container(
                   width: 50,
                   height: 50,
@@ -219,37 +212,18 @@ class _ProductCard extends StatelessWidget {
                   child: Icon(getIconForCategory(product.category), color: Theme.of(context).primaryColor),
                 ),
                 const SizedBox(width: 16),
-
-                // Details
                 Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(
-                        product.model,
-                        style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
-                      ),
+                      Text(product.model, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
                       const SizedBox(height: 4),
-                      Text(
-                        "${product.name} • ${product.category}",
-                        style: TextStyle(fontSize: 12, color: isDark ? Colors.white60 : Colors.grey[600]),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                      ),
+                      Text("${product.name} • ${product.category}", style: TextStyle(fontSize: 12, color: isDark ? Colors.white60 : Colors.grey[600]), maxLines: 1, overflow: TextOverflow.ellipsis),
                       const SizedBox(height: 6),
-                      Text(
-                        "৳${product.marketPrice.toStringAsFixed(0)}",
-                        style: TextStyle(
-                          color: Theme.of(context).primaryColor,
-                          fontWeight: FontWeight.bold,
-                          fontSize: 14,
-                        ),
-                      ),
+                      Text("৳${product.marketPrice.toStringAsFixed(0)}", style: TextStyle(color: Theme.of(context).primaryColor, fontWeight: FontWeight.bold, fontSize: 14)),
                     ],
                   ),
                 ),
-
-                // Stock Badge
                 Container(
                   padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                   decoration: BoxDecoration(
@@ -259,18 +233,8 @@ class _ProductCard extends StatelessWidget {
                   ),
                   child: Column(
                     children: [
-                      Text(
-                        product.currentStock.toString(),
-                        style: TextStyle(
-                          color: stockColor,
-                          fontWeight: FontWeight.bold,
-                          fontSize: 16,
-                        ),
-                      ),
-                      Text(
-                        "Stock",
-                        style: TextStyle(color: stockColor, fontSize: 10),
-                      ),
+                      Text(product.currentStock.toString(), style: TextStyle(color: stockColor, fontWeight: FontWeight.bold, fontSize: 16)),
+                      Text("Stock", style: TextStyle(color: stockColor, fontSize: 10)),
                     ],
                   ),
                 ),

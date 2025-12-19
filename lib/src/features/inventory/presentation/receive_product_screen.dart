@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../data/inventory_repository.dart';
+import '../domain/product_model.dart'; // Ensure this import exists
 import 'receiving_pdf_generator.dart';
 
 class ReceiveProductScreen extends ConsumerStatefulWidget {
@@ -21,23 +22,18 @@ class _ReceiveProductScreenState extends ConsumerState<ReceiveProductScreen> {
   final _mrpController = TextEditingController();
   final _commissionController = TextEditingController();
 
-  // State Variables
   String? _selectedCategory;
   double _calculatedBuyingPrice = 0.0;
   bool _isLoading = false;
 
-  // 👇 UPDATED: Categories based on Vision Electronics Product List
+  // 👇 NEW: List to hold mixed products before saving
+  final List<Product> _tempBatchList = [];
+
   final List<String> _categoryOptions = [
-    'Television',            // Smart TV, Google TV, LED
-    'Refrigerator & Freezer', // Glass Door, VCM, Chest Freezer
-    'Air Conditioner',       // Inverter, General, VRF
-    'Washing Machine',       // Automatic, Manual
-    'Fan & Air Cooling',     // Ceiling, Pedestal, Exhaust, Air Cooler
-    'Kitchen Appliance',     // Rice Cooker, Blender, Oven, Gas Stove
-    'Small Home Appliance',  // Iron, Kettle, Geyser, Room Heater
-    'Audio & Multimedia',    // Speakers, Home Theater
-    'Security & Smart Device', // CCTV, DVR
-    'Accessories & Digital'  // Clocks, Calculators, Remotes
+    'Television', 'Refrigerator & Freezer', 'Air Conditioner',
+    'Washing Machine', 'Fan & Air Cooling', 'Kitchen Appliance',
+    'Small Home Appliance', 'Audio & Multimedia',
+    'Security & Smart Device', 'Accessories & Digital'
   ];
 
   @override
@@ -55,80 +51,76 @@ class _ReceiveProductScreenState extends ConsumerState<ReceiveProductScreen> {
     });
   }
 
-  Future<void> _submit() async {
+  // 👇 CHANGED: Logic to ADD to local list instead of DB
+  void _addToList() {
     if (!_formKey.currentState!.validate()) return;
+    if (_selectedCategory == null) return;
+
+    final product = Product(
+      id: '', // Temp ID
+      name: _nameController.text.trim(),
+      model: _modelController.text.trim(),
+      category: _selectedCategory!,
+      capacity: _capacityController.text.trim(),
+      marketPrice: double.parse(_mrpController.text.trim()),
+      commissionPercent: double.parse(_commissionController.text.trim()),
+      buyingPrice: _calculatedBuyingPrice,
+      currentStock: int.parse(_qtyController.text.trim()),
+    );
+
+    setState(() {
+      _tempBatchList.add(product);
+      // Clear specific fields for next entry, keep others if needed
+      _modelController.clear();
+      _nameController.clear();
+      _capacityController.clear();
+      _qtyController.clear();
+      // We might keep MRP/Commission if entering similar items, but let's clear for safety
+      _mrpController.clear();
+      _commissionController.clear();
+      _calculatedBuyingPrice = 0.0;
+    });
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text("${product.category} Added to List! Add more or Save All."), duration: const Duration(seconds: 1)),
+    );
+  }
+
+  // 👇 NEW: Logic to Save the whole Batch
+  Future<void> _submitBatch() async {
+    if (_tempBatchList.isEmpty) return;
 
     setState(() => _isLoading = true);
 
     try {
-      // 1. Save to Database
-      await ref.read(inventoryRepositoryProvider).receiveProduct(
-        name: _nameController.text.trim(),
-        model: _modelController.text.trim(),
-        category: _selectedCategory!,
-        capacity: _capacityController.text.trim(),
-        quantity: int.parse(_qtyController.text.trim()),
-        mrp: double.parse(_mrpController.text.trim()),
-        commission: double.parse(_commissionController.text.trim()),
-      );
+      await ref.read(inventoryRepositoryProvider).receiveBatchProducts(_tempBatchList);
 
-      // 2. Capture Data for PDF
-      final pdfData = {
-        'name': _nameController.text.trim(),
-        'model': _modelController.text.trim(),
-        'category': _selectedCategory!,
-        'qty': int.parse(_qtyController.text.trim()),
-        'mrp': double.parse(_mrpController.text.trim()),
-        'buyPrice': _calculatedBuyingPrice,
-      };
-
-      if (mounted) _showSuccessDialog(pdfData);
-    } catch (e, stackTrace) {
-      debugPrint("🔴 ERROR SAVING PRODUCT: $e");
-      debugPrint("🔍 STACK TRACE: $stackTrace");
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error: $e'), backgroundColor: Colors.red),
-        );
-      }
+      if (mounted) _showBatchSuccessDialog();
+    } catch (e) {
+      debugPrint("Error: $e");
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: $e'), backgroundColor: Colors.red));
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
   }
 
-  void _showSuccessDialog(Map<String, dynamic> pdfData) {
+  void _showBatchSuccessDialog() {
     showDialog(
       context: context,
       barrierDismissible: false,
       builder: (ctx) => AlertDialog(
         icon: const Icon(Icons.check_circle_rounded, color: Colors.green, size: 48),
-        title: const Text("Stock Added!"),
-        content: const Text("Product received successfully.\nGenerate Inward Challan / Memo?"),
+        title: const Text("Batch Received!"),
+        content: Text("Successfully added ${_tempBatchList.length} items to inventory."),
         actions: [
           TextButton(
             onPressed: () {
               Navigator.pop(ctx);
               Navigator.pop(context);
             },
-            child: const Text("No, Close"),
+            child: const Text("Close"),
           ),
-          FilledButton.icon(
-            icon: const Icon(Icons.print_rounded),
-            label: const Text("Print Memo"),
-            onPressed: () {
-              Navigator.pop(ctx);
-              ReceivingPdfGenerator.generateReceivingMemo(
-                productName: pdfData['name'] as String,
-                model: pdfData['model'] as String,
-                category: pdfData['category'] as String,
-                quantity: pdfData['qty'] as int,
-                mrp: pdfData['mrp'] as double,
-                buyingPrice: pdfData['buyPrice'] as double,
-                receivedBy: "Admin",
-              );
-              Navigator.pop(context);
-            },
-          )
+          // You can add a loop here to generate a master PDF if needed
         ],
       ),
     );
@@ -139,169 +131,222 @@ class _ReceiveProductScreenState extends ConsumerState<ReceiveProductScreen> {
     final isDark = Theme.of(context).brightness == Brightness.dark;
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Receive Stock')),
-      body: SingleChildScrollView(
-        padding: const EdgeInsets.all(20.0),
-        child: Form(
-          key: _formKey,
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              // SECTION 1: PRODUCT DETAILS
-              _SectionHeader(title: "Product Details", icon: Icons.inventory_2_outlined),
-              const SizedBox(height: 16),
-
-              TextFormField(
-                controller: _modelController,
-                textInputAction: TextInputAction.next,
-                decoration: _inputDecor(label: 'Model Number', hint: 'e.g. VIS-32-LED-SMART', icon: Icons.qr_code),
-                validator: (v) => v!.isEmpty ? 'Required' : null,
-              ),
-              const SizedBox(height: 16),
-
-              Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Expanded(
-                    flex: 2,
-                    child: TextFormField(
-                      controller: _nameController,
-                      textInputAction: TextInputAction.next,
-                      decoration: _inputDecor(label: 'Product Name', icon: Icons.label_outline),
-                      validator: (v) => v!.isEmpty ? 'Required' : null,
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    flex: 2,
-                    // Dropdown for Category
-                    child: DropdownButtonFormField<String>(
-                      isExpanded: true,
-                      value: _selectedCategory,
-                      items: _categoryOptions.map((String category) {
-                        return DropdownMenuItem(value: category, child: Text(category, style: const TextStyle(fontSize: 13), overflow: TextOverflow.ellipsis));
-                      }).toList(),
-                      onChanged: (newValue) => setState(() => _selectedCategory = newValue),
-                      decoration: _inputDecor(label: 'Category'),
-                      validator: (v) => v == null ? 'Required' : null,
-                      dropdownColor: isDark ? const Color(0xFF1E293B) : Colors.white,
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 16),
-              TextFormField(
-                controller: _capacityController,
-                textInputAction: TextInputAction.next,
-                decoration: _inputDecor(label: 'Capacity / Specs', hint: 'e.g., 32 Inch, 1.5 Ton', icon: Icons.aspect_ratio),
-              ),
-
-              const SizedBox(height: 32),
-
-              // SECTION 2: COSTING
-              _SectionHeader(title: "Pricing & Stock", icon: Icons.attach_money),
-              const SizedBox(height: 16),
-
-              Row(
-                children: [
-                  Expanded(
-                    child: TextFormField(
-                      controller: _mrpController,
-                      keyboardType: TextInputType.number,
-                      textInputAction: TextInputAction.next,
-                      decoration: _inputDecor(label: 'MRP (Market Price)', icon: Icons.price_change_outlined),
-                      validator: (v) => v!.isEmpty ? 'Required' : null,
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: TextFormField(
-                      controller: _commissionController,
-                      keyboardType: TextInputType.number,
-                      textInputAction: TextInputAction.next,
-                      decoration: _inputDecor(label: 'Commission %', icon: Icons.percent),
-                      validator: (v) => v!.isEmpty ? 'Required' : null,
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 16),
-
-              // Buying Price Card
-              Container(
-                padding: const EdgeInsets.all(16),
-                decoration: BoxDecoration(
-                  color: isDark ? const Color(0xFF1E293B) : Colors.green.shade50,
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: Colors.green.withOpacity(0.3)),
+      appBar: AppBar(
+        title: const Text('Receive Stock (Batch)'),
+        actions: [
+          // Show item count badge
+          if (_tempBatchList.isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.only(right: 16),
+              child: Center(
+                child: Badge(
+                  label: Text('${_tempBatchList.length}'),
+                  child: const Icon(Icons.shopping_cart_outlined),
                 ),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              ),
+            )
+        ],
+      ),
+      body: Column(
+        children: [
+          Expanded(
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.all(20.0),
+              child: Form(
+                key: _formKey,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
+                    // --- INPUT FORM ---
+                    _SectionHeader(title: "Add Item Details", icon: Icons.add_circle_outline),
+                    const SizedBox(height: 16),
+
+                    // Row 1: Category & Model
+                    Row(
                       children: [
-                        Text("Buying Price (Calculated)", style: TextStyle(color: isDark ? Colors.white70 : Colors.green.shade900, fontSize: 12)),
-                        const SizedBox(height: 4),
-                        Text(
-                          "৳${_calculatedBuyingPrice.toStringAsFixed(2)}",
-                          style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Colors.green),
+                        Expanded(
+                          flex: 3,
+                          child: DropdownButtonFormField<String>(
+                            isExpanded: true,
+                            value: _selectedCategory,
+                            items: _categoryOptions.map((c) => DropdownMenuItem(value: c, child: Text(c, style: const TextStyle(fontSize: 13), overflow: TextOverflow.ellipsis))).toList(),
+                            onChanged: (v) => setState(() => _selectedCategory = v),
+                            decoration: _inputDecor(label: 'Category'),
+                            validator: (v) => v == null ? 'Required' : null,
+                          ),
+                        ),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          flex: 2,
+                          child: TextFormField(
+                            controller: _modelController,
+                            textInputAction: TextInputAction.next,
+                            decoration: _inputDecor(label: 'Model'),
+                            validator: (v) => v!.isEmpty ? 'Req' : null,
+                          ),
                         ),
                       ],
                     ),
-                    const Icon(Icons.calculate_outlined, color: Colors.green, size: 32),
+                    const SizedBox(height: 10),
+
+                    // Row 2: Name & Capacity
+                    Row(
+                      children: [
+                        Expanded(
+                          child: TextFormField(
+                            controller: _nameController,
+                            textInputAction: TextInputAction.next,
+                            decoration: _inputDecor(label: 'Product Name'),
+                            validator: (v) => v!.isEmpty ? 'Req' : null,
+                          ),
+                        ),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: TextFormField(
+                            controller: _capacityController,
+                            textInputAction: TextInputAction.next,
+                            decoration: _inputDecor(label: 'Capacity/Size'),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 10),
+
+                    // Row 3: Pricing
+                    Row(
+                      children: [
+                        Expanded(
+                          child: TextFormField(
+                            controller: _mrpController,
+                            keyboardType: TextInputType.number,
+                            textInputAction: TextInputAction.next,
+                            decoration: _inputDecor(label: 'MRP'),
+                            validator: (v) => v!.isEmpty ? 'Req' : null,
+                          ),
+                        ),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: TextFormField(
+                            controller: _commissionController,
+                            keyboardType: TextInputType.number,
+                            textInputAction: TextInputAction.next,
+                            decoration: _inputDecor(label: 'Comm %'),
+                            validator: (v) => v!.isEmpty ? 'Req' : null,
+                          ),
+                        ),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: TextFormField(
+                            controller: _qtyController,
+                            keyboardType: TextInputType.number,
+                            textInputAction: TextInputAction.done,
+                            decoration: _inputDecor(label: 'Qty'),
+                            validator: (v) => v!.isEmpty ? 'Req' : null,
+                          ),
+                        ),
+                      ],
+                    ),
+
+                    const SizedBox(height: 20),
+
+                    // ADD BUTTON
+                    SizedBox(
+                      width: double.infinity,
+                      height: 50,
+                      child: OutlinedButton.icon(
+                        onPressed: _addToList,
+                        icon: const Icon(Icons.playlist_add),
+                        label: const Text("ADD TO LIST"),
+                        style: OutlinedButton.styleFrom(
+                          side: BorderSide(color: Theme.of(context).primaryColor),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                        ),
+                      ),
+                    ),
+
+                    const SizedBox(height: 24),
+                    const Divider(thickness: 2),
+                    _SectionHeader(title: "Items to Save (${_tempBatchList.length})", icon: Icons.list_alt),
+
+                    // --- BATCH LIST PREVIEW ---
+                    if (_tempBatchList.isEmpty)
+                      const Padding(
+                        padding: EdgeInsets.all(20.0),
+                        child: Center(child: Text("List is empty. Add items above.")),
+                      )
+                    else
+                      ListView.builder(
+                        shrinkWrap: true,
+                        physics: const NeverScrollableScrollPhysics(),
+                        itemCount: _tempBatchList.length,
+                        itemBuilder: (context, index) {
+                          final item = _tempBatchList[index];
+                          return Card(
+                            margin: const EdgeInsets.symmetric(vertical: 4),
+                            child: ListTile(
+                              dense: true,
+                              leading: CircleAvatar(
+                                  child: Text("${index + 1}"),
+                                  radius: 12,
+                                  backgroundColor: Colors.grey.shade300
+                              ),
+                              title: Text("${item.category} - ${item.model}", style: const TextStyle(fontWeight: FontWeight.bold)),
+                              subtitle: Text("Qty: ${item.currentStock} | Buy: ${item.buyingPrice.toStringAsFixed(0)}"),
+                              trailing: IconButton(
+                                icon: const Icon(Icons.remove_circle_outline, color: Colors.red),
+                                onPressed: () => setState(() => _tempBatchList.removeAt(index)),
+                              ),
+                            ),
+                          );
+                        },
+                      ),
+
+                    // Add extra space at bottom for the FAB/Button
+                    const SizedBox(height: 80),
                   ],
                 ),
               ),
+            ),
+          ),
 
-              const SizedBox(height: 16),
-              TextFormField(
-                controller: _qtyController,
-                keyboardType: TextInputType.number,
-                textInputAction: TextInputAction.done,
-                decoration: _inputDecor(label: 'Quantity Received', icon: Icons.add_shopping_cart),
-                validator: (v) => v!.isEmpty ? 'Required' : null,
-              ),
-
-              const SizedBox(height: 32),
-
-              SizedBox(
-                width: double.infinity,
-                height: 56,
-                child: ElevatedButton.icon(
-                  onPressed: _isLoading ? null : _submit,
-                  icon: const Icon(Icons.save_rounded),
-                  label: _isLoading
-                      ? const CircularProgressIndicator(color: Colors.white)
-                      : const Text('SAVE TO INVENTORY', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: Theme.of(context).primaryColor,
-                    foregroundColor: Colors.white,
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-                  ),
+          // --- BOTTOM ACTION BAR ---
+          Container(
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: isDark ? const Color(0xFF1E293B) : Colors.white,
+              boxShadow: [BoxShadow(color: Colors.black12, blurRadius: 10, offset: const Offset(0, -5))],
+            ),
+            child: SizedBox(
+              width: double.infinity,
+              height: 56,
+              child: ElevatedButton.icon(
+                onPressed: (_isLoading || _tempBatchList.isEmpty) ? null : _submitBatch,
+                icon: const Icon(Icons.save_rounded),
+                label: _isLoading
+                    ? const CircularProgressIndicator(color: Colors.white)
+                    : Text("SAVE ALL (${_tempBatchList.length} ITEMS)"),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.green,
+                  foregroundColor: Colors.white,
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                 ),
               ),
-            ],
+            ),
           ),
-        ),
+        ],
       ),
     );
   }
 
-  InputDecoration _inputDecor({required String label, String? hint, IconData? icon}) {
+  InputDecoration _inputDecor({required String label}) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     return InputDecoration(
       labelText: label,
-      hintText: hint,
-      prefixIcon: icon != null ? Icon(icon, size: 20) : null,
       filled: true,
       fillColor: isDark ? const Color(0xFF1E293B) : Colors.grey[50],
-      border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
-      enabledBorder: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(12),
-        borderSide: BorderSide(color: isDark ? Colors.transparent : Colors.grey.shade300),
-      ),
-      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+      border: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: BorderSide.none),
+      contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+      isDense: true,
     );
   }
 }
@@ -315,18 +360,9 @@ class _SectionHeader extends StatelessWidget {
   Widget build(BuildContext context) {
     return Row(
       children: [
-        Icon(icon, size: 20, color: Theme.of(context).primaryColor),
+        Icon(icon, size: 18, color: Theme.of(context).primaryColor),
         const SizedBox(width: 8),
-        Text(
-            title,
-            style: TextStyle(
-              color: Theme.of(context).primaryColor,
-              fontWeight: FontWeight.bold,
-              fontSize: 16,
-            )
-        ),
-        const SizedBox(width: 8),
-        Expanded(child: Divider(color: Theme.of(context).primaryColor.withOpacity(0.2))),
+        Text(title, style: TextStyle(color: Theme.of(context).primaryColor, fontWeight: FontWeight.bold)),
       ],
     );
   }
