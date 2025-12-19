@@ -1,6 +1,8 @@
+import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+// 1. Core Repository Provider
 final analyticsRepositoryProvider = Provider((ref) => AnalyticsRepository(FirebaseFirestore.instance));
 
 class AnalyticsRepository {
@@ -8,32 +10,47 @@ class AnalyticsRepository {
 
   AnalyticsRepository(this._firestore);
 
-  // Get all sales for a specific day (Real-time stream)
-// ... inside AnalyticsRepository
-
-  Stream<List<Map<String, dynamic>>> getSalesForDate(DateTime date) {
-    // 👇 DEBUG: Commenting out date logic to check if ANY data exists
-    // final startOfDay = DateTime(date.year, date.month, date.day, 0, 0, 0);
-    // final endOfDay = DateTime(date.year, date.month, date.day, 23, 59, 59);
-
+  // Fetch sales within a specific Date Range
+  Stream<List<Map<String, dynamic>>> getSalesForRange(DateTime start, DateTime end) {
     return _firestore
         .collection('sales')
-    // 👇 REMOVE FILTERS TEMPORARILY
-    // .where('timestamp', isGreaterThanOrEqualTo: startOfDay)
-    // .where('timestamp', isLessThanOrEqualTo: endOfDay)
+        .where('timestamp', isGreaterThanOrEqualTo: Timestamp.fromDate(start))
+        .where('timestamp', isLessThanOrEqualTo: Timestamp.fromDate(end))
+        .orderBy('timestamp', descending: true)
         .snapshots()
         .map((snapshot) {
-
-      // 👇 ADD PRINT TO DEBUG CONSOLE
-      print("📊 ANALYTICS DEBUG: Found ${snapshot.docs.length} sales documents.");
-
-      return snapshot.docs.map((doc) => doc.data()).toList();
+      return snapshot.docs.map((doc) {
+        final data = doc.data();
+        data['id'] = doc.id;
+        return data;
+      }).toList();
     });
   }
 }
 
-// Provider to get "Today's Stats" automatically
-final todaySalesProvider = StreamProvider<List<Map<String, dynamic>>>((ref) {
+// 2. Date Range Notifier (Replaces StateProvider)
+class DateRangeNotifier extends Notifier<DateTimeRange> {
+  @override
+  DateTimeRange build() {
+    // Default to Today
+    final now = DateTime.now();
+    final start = DateTime(now.year, now.month, now.day, 0, 0, 0);
+    final end = DateTime(now.year, now.month, now.day, 23, 59, 59);
+    return DateTimeRange(start: start, end: end);
+  }
+
+  // Method to update the range
+  void setRange(DateTimeRange range) {
+    state = range;
+  }
+}
+
+final dateRangeProvider = NotifierProvider<DateRangeNotifier, DateTimeRange>(DateRangeNotifier.new);
+
+// 3. Sales Report Provider
+final salesReportProvider = StreamProvider<List<Map<String, dynamic>>>((ref) {
   final repo = ref.watch(analyticsRepositoryProvider);
-  return repo.getSalesForDate(DateTime.now());
+  final range = ref.watch(dateRangeProvider);
+
+  return repo.getSalesForRange(range.start, range.end);
 });
