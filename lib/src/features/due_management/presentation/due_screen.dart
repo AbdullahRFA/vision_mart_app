@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../data/due_repository.dart';
-
+import 'payment_receipt_generator.dart'; // 👈 1. Import This
 class DueScreen extends ConsumerWidget {
   const DueScreen({super.key});
 
@@ -154,7 +154,6 @@ class DueScreen extends ConsumerWidget {
       ),
     );
   }
-
   void _showPaymentDialog(BuildContext context, WidgetRef ref, Map<String, dynamic> sale, double remainingDue) {
     final amountController = TextEditingController();
 
@@ -191,8 +190,9 @@ class DueScreen extends ConsumerWidget {
                 return;
               }
 
-              Navigator.pop(ctx); // Close dialog
+              Navigator.pop(ctx); // Close Input Dialog logic
 
+              // 1. Process Payment in Firebase
               await ref.read(dueRepositoryProvider).receivePayment(
                 saleId: sale['saleId'],
                 currentPaidAmount: (sale['paidAmount'] ?? 0).toDouble(),
@@ -200,9 +200,38 @@ class DueScreen extends ConsumerWidget {
                 amountPayingNow: amount,
               );
 
+              // 2. Show Success & Ask to Print
               if (context.mounted) {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(content: Text("Received ৳$amount successfully!")),
+                showDialog(
+                  context: context,
+                  barrierDismissible: false,
+                  builder: (printCtx) => AlertDialog(
+                    title: const Text("Payment Received!"),
+                    content: const Text("Do you want to print the Money Receipt?"),
+                    actions: [
+                      TextButton(
+                        onPressed: () => Navigator.pop(printCtx), // Close
+                        child: const Text("No"),
+                      ),
+                      ElevatedButton.icon(
+                        icon: const Icon(Icons.print),
+                        label: const Text("Print Receipt"),
+                        onPressed: () {
+                          Navigator.pop(printCtx); // Close Dialog
+
+                          // 3. Generate PDF
+                          PaymentReceiptGenerator.generateReceipt(
+                            customerName: sale['customerName'],
+                            customerPhone: sale['customerPhone'] ?? '',
+                            productName: sale['productName'],
+                            totalDueBefore: remainingDue,
+                            amountPaid: amount,
+                            remainingDue: remainingDue - amount,
+                          );
+                        },
+                      )
+                    ],
+                  ),
                 );
               }
             },
@@ -213,3 +242,7 @@ class DueScreen extends ConsumerWidget {
     );
   }
 }
+
+
+
+
