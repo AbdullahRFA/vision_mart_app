@@ -54,6 +54,12 @@ class VisionMartApp extends ConsumerWidget {
             padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 24),
           ),
         ),
+        // FIXED: Used CardThemeData instead of CardTheme
+        cardTheme: const CardThemeData(
+          color: Colors.white,
+          elevation: 2,
+          margin: EdgeInsets.symmetric(vertical: 8, horizontal: 16),
+        ),
       ),
 
       // DARK THEME
@@ -74,9 +80,11 @@ class VisionMartApp extends ConsumerWidget {
           surfaceTintColor: Colors.transparent,
           titleTextStyle: TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.bold),
         ),
-        cardTheme: CardTheme(
-          color: const Color(0xFF1E293B), // Slate 800
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        // FIXED: Used CardThemeData instead of CardTheme
+        cardTheme: const CardThemeData(
+          color: Color(0xFF1E293B), // Slate 800
+          elevation: 4,
+          margin: EdgeInsets.symmetric(vertical: 8, horizontal: 16),
         ),
       ),
       themeMode: ThemeMode.system,
