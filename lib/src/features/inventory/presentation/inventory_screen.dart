@@ -16,18 +16,20 @@ class _InventoryScreenState extends ConsumerState<InventoryScreen> {
   String _searchQuery = "";
   String _selectedCategory = "All";
 
-  // 👇 CHANGED: Updated category list to match your business needs
+  // 👇 UPDATED: Filter Categories to match Vision Electronics list
   final List<String> _categories = [
     "All",
     "Low Stock",
-    "TV",
-    "Refrigerator",
-    "AC",
-    "Oven",
-    "Electric Cooker",
+    "Television",
+    "Refrigerator & Freezer",
+    "Air Conditioner",
     "Washing Machine",
-    "Fan",
-    "Other"
+    "Fan & Air Cooling",
+    "Kitchen Appliance",
+    "Small Home Appliance",
+    "Audio & Multimedia",
+    "Security & Smart Device",
+    "Accessories & Digital",
   ];
 
   @override
@@ -109,14 +111,18 @@ class _InventoryScreenState extends ConsumerState<InventoryScreen> {
             child: inventoryAsyncValue.when(
               data: (products) {
                 final filteredProducts = products.where((p) {
+                  // Search Filter
                   final matchesSearch = p.name.toLowerCase().contains(_searchQuery) ||
                       p.model.toLowerCase().contains(_searchQuery);
                   if (!matchesSearch) return false;
 
+                  // Category Filter
                   if (_selectedCategory == "All") return true;
                   if (_selectedCategory == "Low Stock") return p.currentStock < 5;
-                  // Standardizes comparison
-                  return p.category.toLowerCase() == _selectedCategory.toLowerCase();
+
+                  // Exact match preferred for categories, but we use contains for safety
+                  return p.category.toLowerCase().contains(_selectedCategory.toLowerCase()) ||
+                      _selectedCategory.toLowerCase().contains(p.category.toLowerCase());
                 }).toList();
 
                 if (filteredProducts.isEmpty) {
@@ -161,6 +167,20 @@ class _ProductCard extends StatelessWidget {
     final stockColor = isLowStock ? Colors.red : Colors.green;
     final isDark = Theme.of(context).brightness == Brightness.dark;
 
+    // Helper to pick icon based on category
+    IconData getIconForCategory(String cat) {
+      final c = cat.toLowerCase();
+      if (c.contains('tv') || c.contains('television')) return Icons.tv_rounded;
+      if (c.contains('fridge') || c.contains('refrigerator')) return Icons.kitchen_rounded;
+      if (c.contains('ac') || c.contains('air conditioner')) return Icons.ac_unit_rounded;
+      if (c.contains('wash')) return Icons.local_laundry_service_rounded;
+      if (c.contains('fan')) return Icons.air_rounded;
+      if (c.contains('kitchen')) return Icons.rice_bowl_rounded;
+      if (c.contains('audio')) return Icons.speaker_group_rounded;
+      if (c.contains('security')) return Icons.videocam_rounded;
+      return Icons.devices_other_rounded;
+    }
+
     return Container(
       margin: const EdgeInsets.only(bottom: 12),
       decoration: BoxDecoration(
@@ -196,7 +216,7 @@ class _ProductCard extends StatelessWidget {
                     color: Theme.of(context).primaryColor.withOpacity(0.1),
                     borderRadius: BorderRadius.circular(12),
                   ),
-                  child: Icon(Icons.tv_rounded, color: Theme.of(context).primaryColor),
+                  child: Icon(getIconForCategory(product.category), color: Theme.of(context).primaryColor),
                 ),
                 const SizedBox(width: 16),
 

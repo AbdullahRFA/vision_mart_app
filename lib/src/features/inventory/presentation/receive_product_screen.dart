@@ -16,27 +16,28 @@ class _ReceiveProductScreenState extends ConsumerState<ReceiveProductScreen> {
   // Controllers
   final _nameController = TextEditingController();
   final _modelController = TextEditingController();
-  // final _categoryController = TextEditingController(); // Removed in favor of Dropdown
   final _capacityController = TextEditingController();
   final _qtyController = TextEditingController();
   final _mrpController = TextEditingController();
   final _commissionController = TextEditingController();
 
   // State Variables
-  String? _selectedCategory; // Stores the selected dropdown value
+  String? _selectedCategory;
   double _calculatedBuyingPrice = 0.0;
   bool _isLoading = false;
 
-  // Define your fixed categories here
+  // 👇 UPDATED: Categories based on Vision Electronics Product List
   final List<String> _categoryOptions = [
-    'TV',
-    'Refrigerator',
-    'AC',
-    'Oven',
-    'Electric Cooker',
-    'Washing Machine',
-    'Fan',
-    'Other'
+    'Television',            // Smart TV, Google TV, LED
+    'Refrigerator & Freezer', // Glass Door, VCM, Chest Freezer
+    'Air Conditioner',       // Inverter, General, VRF
+    'Washing Machine',       // Automatic, Manual
+    'Fan & Air Cooling',     // Ceiling, Pedestal, Exhaust, Air Cooler
+    'Kitchen Appliance',     // Rice Cooker, Blender, Oven, Gas Stove
+    'Small Home Appliance',  // Iron, Kettle, Geyser, Room Heater
+    'Audio & Multimedia',    // Speakers, Home Theater
+    'Security & Smart Device', // CCTV, DVR
+    'Accessories & Digital'  // Clocks, Calculators, Remotes
   ];
 
   @override
@@ -64,7 +65,7 @@ class _ReceiveProductScreenState extends ConsumerState<ReceiveProductScreen> {
       await ref.read(inventoryRepositoryProvider).receiveProduct(
         name: _nameController.text.trim(),
         model: _modelController.text.trim(),
-        category: _selectedCategory!, // Use the dropdown value
+        category: _selectedCategory!,
         capacity: _capacityController.text.trim(),
         quantity: int.parse(_qtyController.text.trim()),
         mrp: double.parse(_mrpController.text.trim()),
@@ -173,11 +174,12 @@ class _ReceiveProductScreenState extends ConsumerState<ReceiveProductScreen> {
                   const SizedBox(width: 12),
                   Expanded(
                     flex: 2,
-                    // 👇 CHANGED: Dropdown for Category
+                    // Dropdown for Category
                     child: DropdownButtonFormField<String>(
+                      isExpanded: true,
                       value: _selectedCategory,
                       items: _categoryOptions.map((String category) {
-                        return DropdownMenuItem(value: category, child: Text(category, style: const TextStyle(fontSize: 14)));
+                        return DropdownMenuItem(value: category, child: Text(category, style: const TextStyle(fontSize: 13), overflow: TextOverflow.ellipsis));
                       }).toList(),
                       onChanged: (newValue) => setState(() => _selectedCategory = newValue),
                       decoration: _inputDecor(label: 'Category'),
