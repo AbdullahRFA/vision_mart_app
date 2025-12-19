@@ -14,50 +14,44 @@ class InventoryScreen extends ConsumerStatefulWidget {
 class _InventoryScreenState extends ConsumerState<InventoryScreen> {
   final _searchController = TextEditingController();
   String _searchQuery = "";
-
-  // Filter State
   String _selectedCategory = "All";
 
-  // Define your main categories here (matches what you type in Receive Product)
   final List<String> _categories = [
-    "All",
-    "Low Stock", // Special Filter
-    "TV",
-    "Refrigerator",
-    "AC",
-    "Fan",
-    "Washing Machine",
-    "Other"
+    "All", "Low Stock", "TV", "Refrigerator", "AC", "Fan", "Washing Machine", "Other"
   ];
 
   @override
   void initState() {
     super.initState();
     _searchController.addListener(() {
-      setState(() {
-        _searchQuery = _searchController.text.toLowerCase();
-      });
+      setState(() => _searchQuery = _searchController.text.toLowerCase());
     });
   }
 
   @override
   Widget build(BuildContext context) {
     final inventoryAsyncValue = ref.watch(inventoryStreamProvider);
+    final isDark = Theme.of(context).brightness == Brightness.dark;
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Current Inventory')),
+      appBar: AppBar(title: const Text('Inventory')),
       body: Column(
         children: [
           // 1. SEARCH BAR
           Padding(
-            padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+            padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
             child: TextField(
               controller: _searchController,
-              decoration: const InputDecoration(
-                labelText: 'Search by Name or Model',
-                prefixIcon: Icon(Icons.search),
-                border: OutlineInputBorder(),
-                contentPadding: EdgeInsets.symmetric(horizontal: 16, vertical: 0),
+              decoration: InputDecoration(
+                hintText: 'Search Model or Name...',
+                prefixIcon: const Icon(Icons.search_rounded),
+                filled: true,
+                fillColor: isDark ? const Color(0xFF1E293B) : Colors.white,
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                  borderSide: BorderSide.none,
+                ),
+                contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
               ),
             ),
           ),
@@ -69,27 +63,28 @@ class _InventoryScreenState extends ConsumerState<InventoryScreen> {
             child: Row(
               children: _categories.map((category) {
                 final isSelected = _selectedCategory == category;
-                // Special styling for "Low Stock" to make it urgent
-                final isLowStockChip = category == "Low Stock";
+                final isLowStock = category == "Low Stock";
 
                 return Padding(
                   padding: const EdgeInsets.only(right: 8.0),
-                  child: ChoiceChip(
+                  child: FilterChip(
                     label: Text(category),
                     selected: isSelected,
-                    selectedColor: isLowStockChip ? Colors.red.shade100 : Colors.blue.shade100,
+                    showCheckmark: false,
+                    side: BorderSide.none,
+                    backgroundColor: isDark ? const Color(0xFF1E293B) : Colors.white,
+                    selectedColor: isLowStock
+                        ? Colors.red.withOpacity(0.2)
+                        : Theme.of(context).primaryColor.withOpacity(0.2),
                     labelStyle: TextStyle(
                       color: isSelected
-                          ? (isLowStockChip ? Colors.red : Colors.blue.shade900)
-                          : Colors.black,
+                          ? (isLowStock ? Colors.red : Theme.of(context).primaryColor)
+                          : (isDark ? Colors.white60 : Colors.grey[700]),
                       fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
                     ),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
                     onSelected: (bool selected) {
-                      if (selected) {
-                        setState(() {
-                          _selectedCategory = category;
-                        });
-                      }
+                      if (selected) setState(() => _selectedCategory = category);
                     },
                   ),
                 );
@@ -97,29 +92,20 @@ class _InventoryScreenState extends ConsumerState<InventoryScreen> {
             ),
           ),
 
-          const Divider(height: 20),
+          const SizedBox(height: 10),
 
           // 3. PRODUCT LIST
           Expanded(
             child: inventoryAsyncValue.when(
               data: (products) {
-                // FILTERING LOGIC
                 final filteredProducts = products.where((p) {
-                  // A. Search Query Check
                   final matchesSearch = p.name.toLowerCase().contains(_searchQuery) ||
                       p.model.toLowerCase().contains(_searchQuery);
-
                   if (!matchesSearch) return false;
 
-                  // B. Category / Low Stock Check
-                  if (_selectedCategory == "All") {
-                    return true;
-                  } else if (_selectedCategory == "Low Stock") {
-                    return p.currentStock < 5; // Low Stock Threshold
-                  } else {
-                    // Category Matching (Case insensitive partial match)
-                    return p.category.toLowerCase().contains(_selectedCategory.toLowerCase());
-                  }
+                  if (_selectedCategory == "All") return true;
+                  if (_selectedCategory == "Low Stock") return p.currentStock < 5;
+                  return p.category.toLowerCase().contains(_selectedCategory.toLowerCase());
                 }).toList();
 
                 if (filteredProducts.isEmpty) {
@@ -127,13 +113,11 @@ class _InventoryScreenState extends ConsumerState<InventoryScreen> {
                     child: Column(
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [
-                        Icon(Icons.inventory_2_outlined, size: 60, color: Colors.grey.shade300),
-                        const SizedBox(height: 10),
+                        Icon(Icons.inventory_2_outlined, size: 80, color: Colors.grey.withOpacity(0.3)),
+                        const SizedBox(height: 16),
                         Text(
-                          _selectedCategory == "Low Stock"
-                              ? "No items are running low!"
-                              : "No products found.",
-                          style: const TextStyle(color: Colors.grey),
+                          "No products found",
+                          style: TextStyle(color: Colors.grey.withOpacity(0.8), fontSize: 16),
                         ),
                       ],
                     ),
@@ -141,12 +125,9 @@ class _InventoryScreenState extends ConsumerState<InventoryScreen> {
                 }
 
                 return ListView.builder(
-                  padding: const EdgeInsets.only(bottom: 80), // Space for FAB if needed
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
                   itemCount: filteredProducts.length,
-                  itemBuilder: (context, index) {
-                    final product = filteredProducts[index];
-                    return _ProductCard(product: product);
-                  },
+                  itemBuilder: (context, index) => _ProductCard(product: filteredProducts[index]),
                 );
               },
               loading: () => const Center(child: CircularProgressIndicator()),
@@ -163,66 +144,109 @@ class _ProductCard extends StatelessWidget {
   final Product product;
   const _ProductCard({required this.product});
 
-  Color _getStockColor(int stock) {
-    if (stock == 0) return Colors.red;
-    if (stock < 5) return Colors.orange;
-    return Colors.green;
-  }
-
   @override
   Widget build(BuildContext context) {
-    return Card(
-      margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
-      elevation: 2,
-      child: ListTile(
-        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-        leading: CircleAvatar(
-          backgroundColor: _getStockColor(product.currentStock).withOpacity(0.1),
-          child: Text(
-            product.currentStock.toString(),
-            style: TextStyle(
-              color: _getStockColor(product.currentStock),
-              fontWeight: FontWeight.bold,
-            ),
+    final isLowStock = product.currentStock < 5;
+    final stockColor = isLowStock ? Colors.red : Colors.green;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 12),
+      decoration: BoxDecoration(
+        color: isDark ? const Color(0xFF1E293B) : Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(isDark ? 0.2 : 0.05),
+            blurRadius: 8,
+            offset: const Offset(0, 2),
           ),
-        ),
-        title: Text(
-          product.model,
-          style: const TextStyle(fontWeight: FontWeight.bold),
-        ),
-        subtitle: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(product.name, maxLines: 1, overflow: TextOverflow.ellipsis),
-            const SizedBox(height: 4),
-            Row(
+        ],
+      ),
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          borderRadius: BorderRadius.circular(16),
+          onTap: () {
+            Navigator.push(
+              context,
+              MaterialPageRoute(builder: (_) => SellProductScreen(product: product)),
+            );
+          },
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: Row(
               children: [
+                // Icon / Avatar
                 Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                  width: 50,
+                  height: 50,
                   decoration: BoxDecoration(
-                      color: Colors.grey.shade200,
-                      borderRadius: BorderRadius.circular(4)
+                    color: Theme.of(context).primaryColor.withOpacity(0.1),
+                    borderRadius: BorderRadius.circular(12),
                   ),
-                  child: Text(product.category, style: const TextStyle(fontSize: 10, color: Colors.grey)),
+                  child: Icon(Icons.tv_rounded, color: Theme.of(context).primaryColor),
                 ),
-                const SizedBox(width: 8),
-                Text(
-                  "MRP: ৳${product.marketPrice.toStringAsFixed(0)}",
-                  style: const TextStyle(color: Colors.green, fontWeight: FontWeight.bold, fontSize: 12),
+                const SizedBox(width: 16),
+
+                // Details
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        product.model,
+                        style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        "${product.name} • ${product.category}",
+                        style: TextStyle(fontSize: 12, color: isDark ? Colors.white60 : Colors.grey[600]),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                      const SizedBox(height: 6),
+                      Text(
+                        "৳${product.marketPrice.toStringAsFixed(0)}",
+                        style: TextStyle(
+                          color: Theme.of(context).primaryColor,
+                          fontWeight: FontWeight.bold,
+                          fontSize: 14,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+
+                // Stock Badge
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                  decoration: BoxDecoration(
+                    color: stockColor.withOpacity(0.1),
+                    borderRadius: BorderRadius.circular(20),
+                    border: Border.all(color: stockColor.withOpacity(0.2)),
+                  ),
+                  child: Column(
+                    children: [
+                      Text(
+                        product.currentStock.toString(),
+                        style: TextStyle(
+                          color: stockColor,
+                          fontWeight: FontWeight.bold,
+                          fontSize: 16,
+                        ),
+                      ),
+                      Text(
+                        "Stock",
+                        style: TextStyle(color: stockColor, fontSize: 10),
+                      ),
+                    ],
+                  ),
                 ),
               ],
             ),
-          ],
+          ),
         ),
-        trailing: const Icon(Icons.arrow_forward_ios, size: 14, color: Colors.grey),
-        onTap: () {
-          Navigator.push(
-            context,
-            MaterialPageRoute(
-              builder: (_) => SellProductScreen(product: product),
-            ),
-          );
-        },
       ),
     );
   }
