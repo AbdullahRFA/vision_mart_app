@@ -1,12 +1,14 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../data/due_repository.dart';
-import 'payment_receipt_generator.dart'; // 👈 1. Import This
+import 'payment_receipt_generator.dart';
+
 class DueScreen extends ConsumerWidget {
   const DueScreen({super.key});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    // This 'context' is the PARENT context. It stays alive even if items disappear.
     final dueListAsync = ref.watch(dueStreamProvider);
 
     return Scaffold(
@@ -26,7 +28,7 @@ class DueScreen extends ConsumerWidget {
             );
           }
 
-          // Calculate Total OUTSTANDING (Not just total sales)
+          // Calculate Total OUTSTANDING
           double totalOutstanding = 0;
           for (var item in dues) {
             double total = (item['totalAmount'] ?? 0).toDouble();
@@ -56,8 +58,8 @@ class DueScreen extends ConsumerWidget {
               Expanded(
                 child: ListView.builder(
                   itemCount: dues.length,
-                  // ... inside ListView.builder
-                  itemBuilder: (context, index) {
+                  // 👇 CHANGED: Renamed 'context' to 'itemContext' to avoid confusion
+                  itemBuilder: (itemContext, index) {
                     final sale = dues[index];
 
                     final double totalAmount = (sale['totalAmount'] ?? 0).toDouble();
@@ -71,7 +73,7 @@ class DueScreen extends ConsumerWidget {
                       child: Padding(
                         padding: const EdgeInsets.all(12.0),
                         child: Row(
-                          crossAxisAlignment: CrossAxisAlignment.center, // Vertically center content
+                          crossAxisAlignment: CrossAxisAlignment.center,
                           children: [
                             // 1. AVATAR
                             CircleAvatar(
@@ -82,7 +84,7 @@ class DueScreen extends ConsumerWidget {
 
                             const SizedBox(width: 12),
 
-                            // 2. CUSTOMER INFO (Expanded to take available width)
+                            // 2. CUSTOMER INFO
                             Expanded(
                               child: Column(
                                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -102,7 +104,6 @@ class DueScreen extends ConsumerWidget {
                             Column(
                               crossAxisAlignment: CrossAxisAlignment.end,
                               children: [
-                                // Money Info
                                 Text(
                                   "Due: ৳${remainingDue.toStringAsFixed(0)}",
                                   style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.red),
@@ -113,7 +114,7 @@ class DueScreen extends ConsumerWidget {
                                 ),
                                 const SizedBox(height: 8),
 
-                                // "Receive Pay" Button
+                                // 👇 CHANGED: Passing the PARENT 'context', not 'itemContext'
                                 InkWell(
                                   onTap: () => _showPaymentDialog(context, ref, sale, remainingDue),
                                   borderRadius: BorderRadius.circular(8),
@@ -143,7 +144,6 @@ class DueScreen extends ConsumerWidget {
                       ),
                     );
                   },
-// ...
                 ),
               ),
             ],
@@ -154,95 +154,140 @@ class DueScreen extends ConsumerWidget {
       ),
     );
   }
+
   void _showPaymentDialog(BuildContext context, WidgetRef ref, Map<String, dynamic> sale, double remainingDue) {
     final amountController = TextEditingController();
 
     showDialog(
       context: context,
+      barrierDismissible: false,
       builder: (ctx) => AlertDialog(
-        title: Text("Receive Payment from ${sale['customerName']}"),
+        title: Text("Receive Payment\n${sale['customerName']}"),
         content: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Text("Remaining Due: ৳$remainingDue"),
-            const SizedBox(height: 10),
+            Text("Remaining Due: ৳${remainingDue.toStringAsFixed(0)}", style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.red)),
+            const SizedBox(height: 15),
             TextField(
               controller: amountController,
               keyboardType: TextInputType.number,
               autofocus: true,
               decoration: const InputDecoration(
-                labelText: "Enter Amount",
+                labelText: "Enter Amount Received",
                 border: OutlineInputBorder(),
                 prefixText: "৳ ",
               ),
             ),
+            const SizedBox(height: 10),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+              children: [
+                _quickAmountBtn(amountController, 500),
+                _quickAmountBtn(amountController, 1000),
+                // FULL PAYMENT BUTTON
+                InkWell(
+                  onTap: () => amountController.text = remainingDue.toStringAsFixed(0),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                    decoration: BoxDecoration(color: Colors.red.shade100, borderRadius: BorderRadius.circular(5)),
+                    child: const Text("FULL", style: TextStyle(color: Colors.red, fontWeight: FontWeight.bold)),
+                  ),
+                ),
+              ],
+            )
           ],
         ),
         actions: [
           TextButton(onPressed: () => Navigator.pop(ctx), child: const Text("Cancel")),
           ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.green, foregroundColor: Colors.white),
             onPressed: () async {
               final amount = double.tryParse(amountController.text) ?? 0;
               if (amount <= 0 || amount > remainingDue) {
                 ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text("Invalid Amount! Cannot be more than due.")),
+                  const SnackBar(content: Text("Invalid Amount! Check value.")),
                 );
                 return;
               }
 
-              Navigator.pop(ctx); // Close Input Dialog logic
+              Navigator.pop(ctx); // Close Input Dialog
 
-              // 1. Process Payment in Firebase
-              await ref.read(dueRepositoryProvider).receivePayment(
-                saleId: sale['saleId'],
-                currentPaidAmount: (sale['paidAmount'] ?? 0).toDouble(),
-                totalOrderAmount: (sale['totalAmount'] ?? 0).toDouble(),
-                amountPayingNow: amount,
-              );
-
-              // 2. Show Success & Ask to Print
-              if (context.mounted) {
-                showDialog(
-                  context: context,
-                  barrierDismissible: false,
-                  builder: (printCtx) => AlertDialog(
-                    title: const Text("Payment Received!"),
-                    content: const Text("Do you want to print the Money Receipt?"),
-                    actions: [
-                      TextButton(
-                        onPressed: () => Navigator.pop(printCtx), // Close
-                        child: const Text("No"),
-                      ),
-                      ElevatedButton.icon(
-                        icon: const Icon(Icons.print),
-                        label: const Text("Print Receipt"),
-                        onPressed: () {
-                          Navigator.pop(printCtx); // Close Dialog
-
-                          // 3. Generate PDF
-                          PaymentReceiptGenerator.generateReceipt(
-                            customerName: sale['customerName'],
-                            customerPhone: sale['customerPhone'] ?? '',
-                            productName: sale['productName'],
-                            totalDueBefore: remainingDue,
-                            amountPaid: amount,
-                            remainingDue: remainingDue - amount,
-                          );
-                        },
-                      )
-                    ],
-                  ),
+              try {
+                // 1. Process Payment
+                await ref.read(dueRepositoryProvider).receivePayment(
+                  saleId: sale['saleId'],
+                  currentPaidAmount: (sale['paidAmount'] ?? 0).toDouble(),
+                  totalOrderAmount: (sale['totalAmount'] ?? 0).toDouble(),
+                  amountPayingNow: amount,
                 );
+
+                // 2. Show Success & Ask to Print
+                // using 'context' here is safe now because it refers to the Parent Scaffold,
+                // which is still mounted even if the list item is gone.
+                if (context.mounted) {
+                  showDialog(
+                    context: context,
+                    barrierDismissible: false,
+                    builder: (printCtx) => AlertDialog(
+                      title: const Row(
+                        children: [
+                          Icon(Icons.check_circle, color: Colors.green),
+                          SizedBox(width: 10),
+                          Text("Payment Successful!"),
+                        ],
+                      ),
+                      content: Text(
+                          amount >= (remainingDue - 0.1)
+                              ? "The due has been FULLY CLEARED.\nGenerate Receipt?"
+                              : "Partial payment recorded.\nGenerate Receipt?"
+                      ),
+                      actions: [
+                        TextButton(
+                          onPressed: () => Navigator.pop(printCtx),
+                          child: const Text("No"),
+                        ),
+                        ElevatedButton.icon(
+                          icon: const Icon(Icons.print),
+                          label: const Text("Print Receipt"),
+                          onPressed: () {
+                            Navigator.pop(printCtx);
+
+                            // 3. Generate PDF
+                            PaymentReceiptGenerator.generateReceipt(
+                              customerName: sale['customerName'],
+                              customerPhone: sale['customerPhone'] ?? '',
+                              productName: sale['productName'],
+                              totalDueBefore: remainingDue,
+                              amountPaid: amount,
+                              remainingDue: remainingDue - amount,
+                            );
+                          },
+                        )
+                      ],
+                    ),
+                  );
+                }
+              } catch (e) {
+                if (context.mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Error: $e")));
+                }
               }
             },
-            child: const Text("Confirm Payment"),
+            child: const Text("Confirm & Print"),
           )
         ],
       ),
     );
   }
+
+  Widget _quickAmountBtn(TextEditingController controller, int amount) {
+    return InkWell(
+      onTap: () => controller.text = amount.toString(),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+        decoration: BoxDecoration(color: Colors.grey.shade200, borderRadius: BorderRadius.circular(5)),
+        child: Text("৳$amount"),
+      ),
+    );
+  }
 }
-
-
-
-
