@@ -6,7 +6,7 @@ import '../data/sales_repository.dart'; // Import for CartItem
 
 class PdfGenerator {
 
-  // Existing Single Invoice (Keep or Remove)
+  // Existing Single Invoice
   static Future<void> generateInvoice({
     required String customerName,
     required String customerPhone,
@@ -18,11 +18,10 @@ class PdfGenerator {
     required double finalPrice,
     required String paymentStatus,
   }) async {
-    // ... (Existing code) ...
-    // Since we are moving to batch, you can technically route this to the batch function too
+    // ... (Existing code can remain or be removed if unused) ...
   }
 
-  // 👇 NEW: Batch Invoice Generator
+  // Batch Invoice Generator
   static Future<void> generateBatchInvoice({
     required List<CartItem> items,
     required String customerName,
@@ -134,7 +133,23 @@ class PdfGenerator {
               ],
             ),
 
+            // Push Signatures to bottom
             pw.Spacer(),
+
+            pw.SizedBox(height: 30),
+
+            // --- SIGNATURE BLOCK ---
+            pw.Row(
+              mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+              crossAxisAlignment: pw.CrossAxisAlignment.end,
+              children: [
+                _buildSignatureLine("Customer Signature"),
+                _buildSignatureLine("Sales Operator"),
+                _buildSignatureLine("Sales Manager"),
+              ],
+            ),
+
+            pw.SizedBox(height: 20),
 
             // Footer
             pw.Divider(),
@@ -149,6 +164,25 @@ class PdfGenerator {
     await Printing.layoutPdf(
       onLayout: (PdfPageFormat format) async => pdf.save(),
       name: 'Invoice_$invoiceId',
+    );
+  }
+
+  // Helper for consistent signature lines
+  static pw.Widget _buildSignatureLine(String title) {
+    return pw.Column(
+      mainAxisSize: pw.MainAxisSize.min,
+      children: [
+        pw.Container(
+          width: 100,
+          height: 1,
+          color: PdfColors.black,
+        ),
+        pw.SizedBox(height: 5),
+        pw.Text(
+            title,
+            style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 10)
+        ),
+      ],
     );
   }
 }
