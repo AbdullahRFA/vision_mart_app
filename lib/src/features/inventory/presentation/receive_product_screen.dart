@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../data/inventory_repository.dart';
-import 'receiving_pdf_generator.dart'; // 👈 1. Import This
+import 'receiving_pdf_generator.dart';
 
 class ReceiveProductScreen extends ConsumerStatefulWidget {
   const ReceiveProductScreen({super.key});
@@ -29,7 +29,6 @@ class _ReceiveProductScreenState extends ConsumerState<ReceiveProductScreen> {
   @override
   void initState() {
     super.initState();
-    // Listen to changes to auto-calculate
     _mrpController.addListener(_calculatePrice);
     _commissionController.addListener(_calculatePrice);
   }
@@ -59,7 +58,7 @@ class _ReceiveProductScreenState extends ConsumerState<ReceiveProductScreen> {
         commission: double.parse(_commissionController.text.trim()),
       );
 
-      // 2. Capture Data for PDF before clearing (Optional, if you want to clear)
+      // 2. Capture Data for PDF
       final pdfData = {
         'name': _nameController.text.trim(),
         'model': _modelController.text.trim(),
@@ -69,57 +68,10 @@ class _ReceiveProductScreenState extends ConsumerState<ReceiveProductScreen> {
         'buyPrice': _calculatedBuyingPrice,
       };
 
-      if (mounted) {
-        // 3. Show Success & Ask to Print
-        showDialog(
-          context: context,
-          barrierDismissible: false,
-          builder: (ctx) => AlertDialog(
-            title: const Row(
-              children: [
-                Icon(Icons.check_circle, color: Colors.green),
-                SizedBox(width: 10),
-                Text("Stock Added!"),
-              ],
-            ),
-            content: const Text("Product received successfully.\nGenerate Inward Challan / Memo?"),
-            actions: [
-              TextButton(
-                onPressed: () {
-                  Navigator.pop(ctx); // Close Dialog
-                  Navigator.pop(context); // Go back to Dashboard
-                },
-                child: const Text("No, Just Save"),
-              ),
-              ElevatedButton.icon(
-                icon: const Icon(Icons.print),
-                label: const Text("Print Memo"),
-                onPressed: () {
-                  Navigator.pop(ctx); // Close Dialog
-
-                  // 4. Generate PDF
-                  ReceivingPdfGenerator.generateReceivingMemo(
-                    productName: pdfData['name'] as String,
-                    model: pdfData['model'] as String,
-                    category: pdfData['category'] as String,
-                    quantity: pdfData['qty'] as int,
-                    mrp: pdfData['mrp'] as double,
-                    buyingPrice: pdfData['buyPrice'] as double,
-                    receivedBy: "Admin", // You can fetch actual user email if needed
-                  );
-
-                  // Then go back
-                  Navigator.pop(context);
-                },
-              )
-            ],
-          ),
-        );
-      }
+      if (mounted) _showSuccessDialog(pdfData);
     } catch (e, stackTrace) {
       debugPrint("🔴 ERROR SAVING PRODUCT: $e");
       debugPrint("🔍 STACK TRACE: $stackTrace");
-
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Error: $e'), backgroundColor: Colors.red),
@@ -130,112 +82,182 @@ class _ReceiveProductScreenState extends ConsumerState<ReceiveProductScreen> {
     }
   }
 
+  void _showSuccessDialog(Map<String, dynamic> pdfData) {
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => AlertDialog(
+        icon: const Icon(Icons.check_circle_rounded, color: Colors.green, size: 48),
+        title: const Text("Stock Added!"),
+        content: const Text("Product received successfully.\nGenerate Inward Challan / Memo?"),
+        actions: [
+          TextButton(
+            onPressed: () {
+              Navigator.pop(ctx);
+              Navigator.pop(context);
+            },
+            child: const Text("No, Close"),
+          ),
+          FilledButton.icon(
+            icon: const Icon(Icons.print_rounded),
+            label: const Text("Print Memo"),
+            onPressed: () {
+              Navigator.pop(ctx);
+              ReceivingPdfGenerator.generateReceivingMemo(
+                productName: pdfData['name'] as String,
+                model: pdfData['model'] as String,
+                category: pdfData['category'] as String,
+                quantity: pdfData['qty'] as int,
+                mrp: pdfData['mrp'] as double,
+                buyingPrice: pdfData['buyPrice'] as double,
+                receivedBy: "Admin",
+              );
+              Navigator.pop(context);
+            },
+          )
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+
     return Scaffold(
-      appBar: AppBar(title: const Text('Receive Product (Stock In)')),
+      appBar: AppBar(title: const Text('Receive Stock')),
       body: SingleChildScrollView(
-        padding: const EdgeInsets.all(16.0),
+        padding: const EdgeInsets.all(20.0),
         child: Form(
           key: _formKey,
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              _buildSectionHeader('Product Details'),
+              // SECTION 1: PRODUCT DETAILS
+              _SectionHeader(title: "Product Details", icon: Icons.inventory_2_outlined),
+              const SizedBox(height: 16),
+
               TextFormField(
                 controller: _modelController,
-                decoration: const InputDecoration(labelText: 'Model Number (Required)'),
-                validator: (v) => v!.isEmpty ? 'Model is required' : null,
+                textInputAction: TextInputAction.next,
+                decoration: _inputDecor(label: 'Model Number', hint: 'e.g. VIS-32-LED-SMART', icon: Icons.qr_code),
+                validator: (v) => v!.isEmpty ? 'Required' : null,
               ),
-              const SizedBox(height: 10),
+              const SizedBox(height: 16),
+
               Row(
                 children: [
                   Expanded(
+                    flex: 2,
                     child: TextFormField(
                       controller: _nameController,
-                      decoration: const InputDecoration(labelText: 'Product Name'),
-                      validator: (v) => v!.isEmpty ? 'Name is required' : null,
+                      textInputAction: TextInputAction.next,
+                      decoration: _inputDecor(label: 'Product Name', icon: Icons.label_outline),
+                      validator: (v) => v!.isEmpty ? 'Required' : null,
                     ),
                   ),
-                  const SizedBox(width: 10),
+                  const SizedBox(width: 12),
                   Expanded(
+                    flex: 1,
                     child: TextFormField(
                       controller: _categoryController,
-                      decoration: const InputDecoration(labelText: 'Category (TV, AC)'),
-                      validator: (v) => v!.isEmpty ? 'Category required' : null,
+                      textInputAction: TextInputAction.next,
+                      decoration: _inputDecor(label: 'Category', hint: 'TV'),
+                      validator: (v) => v!.isEmpty ? 'Required' : null,
                     ),
                   ),
                 ],
               ),
-              const SizedBox(height: 10),
+              const SizedBox(height: 16),
               TextFormField(
                 controller: _capacityController,
-                decoration: const InputDecoration(labelText: 'Capacity (e.g., 32", 1.5Ton)'),
+                textInputAction: TextInputAction.next,
+                decoration: _inputDecor(label: 'Capacity / Specs', hint: 'e.g., 32 Inch, 1.5 Ton', icon: Icons.aspect_ratio),
               ),
 
-              const SizedBox(height: 24),
-              _buildSectionHeader('Pricing & Stock'),
+              const SizedBox(height: 32),
+
+              // SECTION 2: COSTING
+              _SectionHeader(title: "Pricing & Stock", icon: Icons.attach_money),
+              const SizedBox(height: 16),
 
               Row(
                 children: [
                   Expanded(
                     child: TextFormField(
                       controller: _mrpController,
-                      decoration: const InputDecoration(labelText: 'Market Price (MRP)'),
                       keyboardType: TextInputType.number,
-                      validator: (v) => v!.isEmpty ? 'MRP required' : null,
+                      textInputAction: TextInputAction.next,
+                      decoration: _inputDecor(label: 'MRP (Market Price)', icon: Icons.price_change_outlined),
+                      validator: (v) => v!.isEmpty ? 'Required' : null,
                     ),
                   ),
-                  const SizedBox(width: 10),
+                  const SizedBox(width: 12),
                   Expanded(
                     child: TextFormField(
                       controller: _commissionController,
-                      decoration: const InputDecoration(labelText: 'Commission %'),
                       keyboardType: TextInputType.number,
+                      textInputAction: TextInputAction.next,
+                      decoration: _inputDecor(label: 'Commission %', icon: Icons.percent),
                       validator: (v) => v!.isEmpty ? 'Required' : null,
                     ),
                   ),
                 ],
               ),
-              const SizedBox(height: 10),
+              const SizedBox(height: 16),
 
-              // Auto-calculated Display
+              // Buying Price Card
               Container(
-                padding: const EdgeInsets.all(12),
-                color: Colors.green.withOpacity(0.1),
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: isDark ? const Color(0xFF1E293B) : Colors.green.shade50,
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: Colors.green.withOpacity(0.3)),
+                ),
                 child: Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    const Text('Buying Price (Auto):', style: TextStyle(fontWeight: FontWeight.bold)),
-                    Text(
-                      _calculatedBuyingPrice.toStringAsFixed(2),
-                      style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.green),
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text("Buying Price (Calculated)", style: TextStyle(color: isDark ? Colors.white70 : Colors.green.shade900, fontSize: 12)),
+                        const SizedBox(height: 4),
+                        Text(
+                          "৳${_calculatedBuyingPrice.toStringAsFixed(2)}",
+                          style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Colors.green),
+                        ),
+                      ],
                     ),
+                    const Icon(Icons.calculate_outlined, color: Colors.green, size: 32),
                   ],
                 ),
               ),
 
-              const SizedBox(height: 10),
+              const SizedBox(height: 16),
               TextFormField(
                 controller: _qtyController,
-                decoration: const InputDecoration(
-                  labelText: 'Quantity Received',
-                  border: OutlineInputBorder(),
-                ),
                 keyboardType: TextInputType.number,
-                validator: (v) => v!.isEmpty ? 'Quantity required' : null,
+                textInputAction: TextInputAction.done,
+                decoration: _inputDecor(label: 'Quantity Received', icon: Icons.add_shopping_cart),
+                validator: (v) => v!.isEmpty ? 'Required' : null,
               ),
 
-              const SizedBox(height: 30),
+              const SizedBox(height: 32),
+
               SizedBox(
                 width: double.infinity,
-                height: 50,
+                height: 56,
                 child: ElevatedButton.icon(
                   onPressed: _isLoading ? null : _submit,
-                  icon: const Icon(Icons.save),
+                  icon: const Icon(Icons.save_rounded),
                   label: _isLoading
                       ? const CircularProgressIndicator(color: Colors.white)
-                      : const Text('SAVE TO INVENTORY'),
+                      : const Text('SAVE TO INVENTORY', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Theme.of(context).primaryColor,
+                    foregroundColor: Colors.white,
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                  ),
                 ),
               ),
             ],
@@ -245,10 +267,46 @@ class _ReceiveProductScreenState extends ConsumerState<ReceiveProductScreen> {
     );
   }
 
-  Widget _buildSectionHeader(String title) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 10),
-      child: Text(title, style: TextStyle(color: Theme.of(context).primaryColor, fontWeight: FontWeight.bold)),
+  InputDecoration _inputDecor({required String label, String? hint, IconData? icon}) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    return InputDecoration(
+      labelText: label,
+      hintText: hint,
+      prefixIcon: icon != null ? Icon(icon, size: 20) : null,
+      filled: true,
+      fillColor: isDark ? const Color(0xFF1E293B) : Colors.grey[50],
+      border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
+      enabledBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(12),
+        borderSide: BorderSide(color: isDark ? Colors.transparent : Colors.grey.shade300),
+      ),
+      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+    );
+  }
+}
+
+class _SectionHeader extends StatelessWidget {
+  final String title;
+  final IconData icon;
+  const _SectionHeader({required this.title, required this.icon});
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        Icon(icon, size: 20, color: Theme.of(context).primaryColor),
+        const SizedBox(width: 8),
+        Text(
+            title,
+            style: TextStyle(
+              color: Theme.of(context).primaryColor,
+              fontWeight: FontWeight.bold,
+              fontSize: 16,
+            )
+        ),
+        const SizedBox(width: 8),
+        Expanded(child: Divider(color: Theme.of(context).primaryColor.withOpacity(0.2))),
+      ],
     );
   }
 }
