@@ -25,7 +25,11 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text("Login Failed: ${e.toString()}"), backgroundColor: Colors.red),
+          SnackBar(
+            content: Text("Login Failed: ${e.toString()}"),
+            backgroundColor: Colors.red,
+            behavior: SnackBarBehavior.floating,
+          ),
         );
       }
     } finally {
@@ -33,7 +37,6 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
     }
   }
 
-  // 👇 Logic to show "Forgot Password" Dialog
   void _showForgotPasswordDialog() {
     final resetEmailController = TextEditingController(text: _emailController.text);
 
@@ -41,14 +44,19 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
       context: context,
       builder: (ctx) => AlertDialog(
         title: const Text("Reset Password"),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
         content: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            const Text("Enter your admin email. We will send you a password reset link."),
-            const SizedBox(height: 10),
+            const Text("Enter your admin email. We will send you a password reset link.", style: TextStyle(color: Colors.grey)),
+            const SizedBox(height: 16),
             TextField(
               controller: resetEmailController,
-              decoration: const InputDecoration(labelText: "Email Address", border: OutlineInputBorder()),
+              decoration: const InputDecoration(
+                labelText: "Email Address",
+                border: OutlineInputBorder(),
+                prefixIcon: Icon(Icons.email_outlined),
+              ),
               keyboardType: TextInputType.emailAddress,
             ),
           ],
@@ -56,9 +64,14 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
         actions: [
           TextButton(onPressed: () => Navigator.pop(ctx), child: const Text("Cancel")),
           ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.blueAccent,
+              foregroundColor: Colors.white,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+            ),
             onPressed: () async {
               if (resetEmailController.text.isEmpty) return;
-              Navigator.pop(ctx); // Close Dialog
+              Navigator.pop(ctx);
 
               try {
                 await ref.read(authServiceProvider).sendPasswordResetEmail(resetEmailController.text.trim());
@@ -85,71 +98,151 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      body: Center(
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.all(24.0),
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              const Icon(Icons.security, size: 80, color: Colors.blueAccent),
-              const SizedBox(height: 20),
-              Text(
-                'A & R Vision Mart\nAuthorized Access Only',
-                textAlign: TextAlign.center,
-                style: Theme.of(context).textTheme.headlineSmall,
+      backgroundColor: Colors.grey[100],
+      body: Stack(
+        children: [
+          // Background Header Design
+          Container(
+            height: 250,
+            decoration: const BoxDecoration(
+              color: Colors.blueAccent,
+              borderRadius: BorderRadius.only(
+                bottomLeft: Radius.circular(30),
+                bottomRight: Radius.circular(30),
               ),
-              const SizedBox(height: 40),
-              TextField(
-                controller: _emailController,
-                decoration: const InputDecoration(
-                  labelText: 'Admin Email',
-                  border: OutlineInputBorder(),
-                  prefixIcon: Icon(Icons.email),
-                ),
-                keyboardType: TextInputType.emailAddress,
+            ),
+            child: const Center(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(Icons.storefront, size: 60, color: Colors.white),
+                  SizedBox(height: 10),
+                  Text(
+                    "A & R Vision Mart",
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 28,
+                      fontWeight: FontWeight.bold,
+                      letterSpacing: 1.2,
+                    ),
+                  ),
+                  Text(
+                    "Management System",
+                    style: TextStyle(color: Colors.white70, fontSize: 16),
+                  ),
+                ],
               ),
-              const SizedBox(height: 16),
-              TextField(
-                controller: _passwordController,
-                decoration: const InputDecoration(
-                  labelText: 'Password',
-                  border: OutlineInputBorder(),
-                  prefixIcon: Icon(Icons.lock),
-                ),
-                obscureText: true,
-              ),
-
-              // 👇 Forgot Password Button
-              Align(
-                alignment: Alignment.centerRight,
-                child: TextButton(
-                  onPressed: _showForgotPasswordDialog,
-                  child: const Text("Forgot Password?"),
-                ),
-              ),
-
-              const SizedBox(height: 10),
-              ElevatedButton(
-                onPressed: _isLoading ? null : _login,
-                style: ElevatedButton.styleFrom(
-                  padding: const EdgeInsets.symmetric(vertical: 16),
-                  backgroundColor: Colors.blueAccent,
-                  foregroundColor: Colors.white,
-                ),
-                child: _isLoading
-                    ? const CircularProgressIndicator(color: Colors.white)
-                    : const Text('SECURE LOGIN'),
-              ),
-              const SizedBox(height: 20),
-              const Text(
-                "Note: New accounts can only be created by the System Administrator manually.",
-                textAlign: TextAlign.center,
-                style: TextStyle(color: Colors.grey, fontSize: 12),
-              ),
-            ],
+            ),
           ),
-        ),
+
+          // Login Card
+          Center(
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.symmetric(horizontal: 24.0),
+              child: Card(
+                elevation: 8,
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+                child: Padding(
+                  padding: const EdgeInsets.all(32.0),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      const Text(
+                        'Authorized Access',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(
+                          fontSize: 22,
+                          fontWeight: FontWeight.bold,
+                          color: Colors.black87,
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      const Text(
+                        'Please sign in to continue',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(color: Colors.grey),
+                      ),
+                      const SizedBox(height: 30),
+
+                      // Email Field
+                      TextField(
+                        controller: _emailController,
+                        decoration: InputDecoration(
+                          labelText: 'Admin Email',
+                          prefixIcon: const Icon(Icons.email_outlined),
+                          border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                          filled: true,
+                          fillColor: Colors.grey[50],
+                        ),
+                        keyboardType: TextInputType.emailAddress,
+                      ),
+                      const SizedBox(height: 16),
+
+                      // Password Field
+                      TextField(
+                        controller: _passwordController,
+                        decoration: InputDecoration(
+                          labelText: 'Password',
+                          prefixIcon: const Icon(Icons.lock_outline),
+                          border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                          filled: true,
+                          fillColor: Colors.grey[50],
+                        ),
+                        obscureText: true,
+                      ),
+
+                      // Forgot Password
+                      Align(
+                        alignment: Alignment.centerRight,
+                        child: TextButton(
+                          onPressed: _showForgotPasswordDialog,
+                          child: const Text("Forgot Password?"),
+                        ),
+                      ),
+
+                      const SizedBox(height: 20),
+
+                      // Login Button
+                      SizedBox(
+                        height: 50,
+                        child: ElevatedButton(
+                          onPressed: _isLoading ? null : _login,
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: Colors.blueAccent,
+                            foregroundColor: Colors.white,
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                            elevation: 2,
+                          ),
+                          child: _isLoading
+                              ? const SizedBox(
+                              height: 24,
+                              width: 24,
+                              child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2)
+                          )
+                              : const Text(
+                            'SECURE LOGIN',
+                            style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 24),
+
+                      const Divider(),
+                      const Padding(
+                        padding: EdgeInsets.only(top: 8.0),
+                        child: Text(
+                          "Contact System Admin for new account creation.",
+                          textAlign: TextAlign.center,
+                          style: TextStyle(color: Colors.grey, fontSize: 12),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }

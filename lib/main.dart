@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:google_fonts/google_fonts.dart';
 import 'firebase_options.dart';
 import 'src/features/authentication/data/auth_repository.dart';
 import 'src/features/authentication/presentation/auth_screen.dart';
@@ -22,146 +23,232 @@ class VisionMartApp extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    // Listen to the auth state (Login vs Logout)
     final authState = ref.watch(authStateProvider);
+
+    // --- DESIGN SYSTEM CONSTANTS ---
+    const primarySeed = Color(0xFF2563EB); // Royal Blue
 
     return MaterialApp(
       title: 'A & R Vision Mart',
       debugShowCheckedModeBanner: false,
+
+      // LIGHT THEME
       theme: ThemeData(
         useMaterial3: true,
-        colorScheme: ColorScheme.fromSeed(seedColor: Colors.blue),
+        brightness: Brightness.light,
+        colorScheme: ColorScheme.fromSeed(seedColor: primarySeed),
+        textTheme: GoogleFonts.poppinsTextTheme(ThemeData.light().textTheme),
+        scaffoldBackgroundColor: const Color(0xFFF8FAFC), // Light Slate
+        appBarTheme: const AppBarTheme(
+          centerTitle: true,
+          elevation: 0,
+          backgroundColor: Colors.transparent,
+          surfaceTintColor: Colors.transparent,
+          titleTextStyle: TextStyle(color: Colors.black87, fontSize: 20, fontWeight: FontWeight.bold),
+          iconTheme: IconThemeData(color: Colors.black87),
+        ),
+        elevatedButtonTheme: ElevatedButtonThemeData(
+          style: ElevatedButton.styleFrom(
+            elevation: 2,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+            padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 24),
+          ),
+        ),
       ),
-      darkTheme: ThemeData.dark(useMaterial3: true),
+
+      // DARK THEME
+      darkTheme: ThemeData(
+        useMaterial3: true,
+        brightness: Brightness.dark,
+        colorScheme: ColorScheme.fromSeed(
+          seedColor: primarySeed,
+          brightness: Brightness.dark,
+          surface: const Color(0xFF0F172A), // Slate 900
+        ),
+        textTheme: GoogleFonts.poppinsTextTheme(ThemeData.dark().textTheme),
+        scaffoldBackgroundColor: const Color(0xFF020617), // Deep Dark
+        appBarTheme: const AppBarTheme(
+          centerTitle: true,
+          elevation: 0,
+          backgroundColor: Colors.transparent,
+          surfaceTintColor: Colors.transparent,
+          titleTextStyle: TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.bold),
+        ),
+        cardTheme: CardTheme(
+          color: const Color(0xFF1E293B), // Slate 800
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        ),
+      ),
       themeMode: ThemeMode.system,
-      // Intelligently switch screens based on auth state
+
       home: authState.when(
-        data: (user) {
-          if (user != null) {
-            // User is Logged In -> Show Dashboard
-            return const DashboardScreen();
-          }
-          // User is Logged Out -> Show Auth Screen
-          return const AuthScreen();
-        },
-        loading: () => const Scaffold(
-          body: Center(child: CircularProgressIndicator()),
-        ),
-        error: (e, trace) => Scaffold(
-          body: Center(child: Text('Error: $e')),
-        ),
+        data: (user) => user != null ? const DashboardScreen() : const AuthScreen(),
+        loading: () => const Scaffold(body: Center(child: CircularProgressIndicator())),
+        error: (e, trace) => Scaffold(body: Center(child: Text('Error: $e'))),
       ),
     );
   }
 }
 
-// Temporary Dashboard to test Logout
 class DashboardScreen extends ConsumerWidget {
   const DashboardScreen({super.key});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final user = ref.read(authServiceProvider).currentUser;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
 
     return Scaffold(
       appBar: AppBar(
         title: const Text('Dashboard'),
         actions: [
-          // LOGOUT BUTTON
           IconButton(
-            icon: const Icon(Icons.logout),
+            icon: const Icon(Icons.logout_rounded),
+            onPressed: () => ref.read(authServiceProvider).signOut(),
             tooltip: 'Logout',
-            onPressed: () {
-              // 1. Call the SignOut method
-              ref.read(authServiceProvider).signOut();
-              // 2. The StreamProvider in main.dart detects the change
-              // and automatically switches back to AuthScreen.
-            },
           ),
         ],
       ),
-      body: Center(
+      body: SingleChildScrollView(
+        padding: const EdgeInsets.all(20),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // Welcome Section
+            Container(
+              padding: const EdgeInsets.all(20),
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  colors: isDark
+                      ? [const Color(0xFF1E40AF), const Color(0xFF1E3A8A)]
+                      : [const Color(0xFF3B82F6), const Color(0xFF2563EB)],
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                ),
+                borderRadius: BorderRadius.circular(20),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.blue.withOpacity(0.3),
+                    blurRadius: 10,
+                    offset: const Offset(0, 5),
+                  ),
+                ],
+              ),
+              child: Row(
+                children: [
+                  CircleAvatar(
+                    radius: 30,
+                    backgroundColor: Colors.white.withOpacity(0.2),
+                    child: const Icon(Icons.storefront_rounded, color: Colors.white, size: 30),
+                  ),
+                  const SizedBox(width: 16),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text("Welcome Back,", style: TextStyle(color: Colors.white70, fontSize: 14)),
+                        Text(
+                          user?.email?.split('@')[0] ?? 'Admin',
+                          style: const TextStyle(color: Colors.white, fontSize: 22, fontWeight: FontWeight.bold),
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+
+            const SizedBox(height: 30),
+            const Text("Quick Actions", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+            const SizedBox(height: 16),
+
+            // Grid Menu
+            GridView.count(
+              shrinkWrap: true,
+              physics: const NeverScrollableScrollPhysics(),
+              crossAxisCount: 2,
+              crossAxisSpacing: 16,
+              mainAxisSpacing: 16,
+              childAspectRatio: 1.1,
+              children: [
+                _DashboardCard(
+                  title: "Receive Stock",
+                  icon: Icons.add_box_rounded,
+                  color: Colors.blue,
+                  onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const ReceiveProductScreen())),
+                ),
+                _DashboardCard(
+                  title: "Inventory",
+                  icon: Icons.inventory_2_rounded,
+                  color: Colors.purple,
+                  onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const InventoryScreen())),
+                ),
+                _DashboardCard(
+                  title: "Sales Report",
+                  icon: Icons.bar_chart_rounded,
+                  color: Colors.orange,
+                  onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const AnalyticsScreen())),
+                ),
+                _DashboardCard(
+                  title: "Due List",
+                  icon: Icons.account_balance_wallet_rounded,
+                  color: Colors.red,
+                  onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const DueScreen())),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _DashboardCard extends StatelessWidget {
+  final String title;
+  final IconData icon;
+  final Color color;
+  final VoidCallback onTap;
+
+  const _DashboardCard({
+    required this.title,
+    required this.icon,
+    required this.color,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+
+    return Material(
+      color: isDark ? const Color(0xFF1E293B) : Colors.white,
+      borderRadius: BorderRadius.circular(20),
+      elevation: 2,
+      child: InkWell(
+        borderRadius: BorderRadius.circular(20),
+        onTap: onTap,
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
+            Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: color.withOpacity(0.1),
+                shape: BoxShape.circle,
+              ),
+              child: Icon(icon, size: 32, color: color),
+            ),
+            const SizedBox(height: 12),
             Text(
-              'Welcome Back!',
-              style: Theme.of(context).textTheme.headlineSmall,
-            ),
-            const SizedBox(height: 8),
-            Text(
-              user?.email ?? 'User', // Show the logged-in email
-              style: Theme.of(context).textTheme.bodyLarge,
-            ),
-            const SizedBox(height: 30),
-            const Text("Inventory & Sales modules coming next..."),
-            // ... inside the Column children of DashboardScreen
-            const SizedBox(height: 30),
-            ElevatedButton.icon(
-              icon: const Icon(Icons.add_box),
-              label: const Text("Receive Product"),
-              style: ElevatedButton.styleFrom(
-                padding: const EdgeInsets.symmetric(horizontal: 30, vertical: 15),
+              title,
+              style: TextStyle(
+                fontSize: 16,
+                fontWeight: FontWeight.w600,
+                color: isDark ? Colors.white70 : Colors.grey[800],
               ),
-              onPressed: () {
-                Navigator.push(
-                    context,
-                    MaterialPageRoute(builder: (_) => const ReceiveProductScreen())
-                );
-              },
             ),
-            // ... inside the Column, below the "Receive Product" button
-            const SizedBox(height: 16),
-            ElevatedButton.icon(
-              icon: const Icon(Icons.inventory),
-              label: const Text("View Inventory"),
-              style: ElevatedButton.styleFrom(
-                padding: const EdgeInsets.symmetric(horizontal: 30, vertical: 15),
-              ),
-              onPressed: () {
-                Navigator.push(
-                    context,
-                    MaterialPageRoute(builder: (_) => const InventoryScreen()) // Import the file!
-                );
-              },
-            ),
-            // ... inside the Column, below "View Inventory"
-            const SizedBox(height: 16),
-            ElevatedButton.icon(
-              icon: const Icon(Icons.bar_chart),
-              label: const Text("Business Report (Today)"),
-              style: ElevatedButton.styleFrom(
-                padding: const EdgeInsets.symmetric(horizontal: 30, vertical: 15),
-                backgroundColor: Colors.indigo.shade50, // Slight visual distinction
-                foregroundColor: Colors.indigo,
-              ),
-              onPressed: () {
-                Navigator.push(
-                    context,
-                    MaterialPageRoute(builder: (_) => const AnalyticsScreen())
-                );
-              },
-            ),
-            const SizedBox(height: 16),
-            ElevatedButton.icon(
-              icon: const Icon(Icons.account_balance_wallet),
-              label: const Text("Due List (Khata)"),
-              style: ElevatedButton.styleFrom(
-                padding: const EdgeInsets.symmetric(horizontal: 30, vertical: 15),
-                backgroundColor: Colors.red.shade50,
-                foregroundColor: Colors.red,
-              ),
-              onPressed: () {
-                Navigator.push(
-                    context,
-                    MaterialPageRoute(builder: (_) => const DueScreen())
-                );
-              },
-            ),
-// ...
-// ...
-
-// ...
           ],
         ),
       ),
