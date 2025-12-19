@@ -6,7 +6,7 @@ import '../domain/product_model.dart';
 
 class ReceivingPdfGenerator {
 
-  // Existing single item generator (unchanged)
+  // Existing single item generator
   static Future<void> generateReceivingMemo({
     required String productName,
     required String model,
@@ -35,7 +35,8 @@ class ReceivingPdfGenerator {
                   child: pw.Column(
                     children: [
                       pw.Text("A & R Vision Mart", style: pw.TextStyle(fontSize: 20, fontWeight: pw.FontWeight.bold)),
-                      pw.Text("INWARD CHALLAN / RECEIVING MEMO", style: pw.TextStyle(fontSize: 12, fontWeight: pw.FontWeight.bold)),
+                      pw.Text("INWARD CHALLAN", style: pw.TextStyle(fontSize: 12, fontWeight: pw.FontWeight.bold)),
+                      pw.Text("Address: Damnash Bazar, Bagmara, Rajshahi", style: const pw.TextStyle(fontSize: 9)),
                       pw.SizedBox(height: 5),
                       pw.Text("Date: $date", style: const pw.TextStyle(fontSize: 10)),
                     ],
@@ -64,7 +65,7 @@ class ReceivingPdfGenerator {
     );
   }
 
-  // 👇 UPDATED: Batch Generator with MRP & Commission columns
+  // 👇 UPDATED: Batch Generator matching Sales PDF style
   static Future<void> generateBatchReceivingMemo({
     required List<Product> products,
     required String receivedBy,
@@ -86,20 +87,33 @@ class ReceivingPdfGenerator {
         margin: const pw.EdgeInsets.all(32),
         build: (pw.Context context) {
           return [
-            // Header
+            // --- HEADER (Matched with Sales PDF) ---
             pw.Center(
                 child: pw.Column(
                   children: [
-                    pw.Text("A & R Vision Mart", style: pw.TextStyle(fontSize: 22, fontWeight: pw.FontWeight.bold)),
-                    pw.Text("BATCH INWARD CHALLAN", style: pw.TextStyle(fontSize: 14, fontWeight: pw.FontWeight.bold)),
+                    pw.Text("A & R Vision Mart", style: pw.TextStyle(fontSize: 24, fontWeight: pw.FontWeight.bold)),
+                    pw.Text("Authorized Dealer: Vision Electronics"),
+                    pw.Text("Address: Damnash Bazar, Bagmara, Rajshahi"),
+                    pw.Text("Mobile: 01718421902"),
                     pw.SizedBox(height: 5),
-                    pw.Text("Date: $date"),
+                    pw.Text("BATCH INWARD CHALLAN", style: pw.TextStyle(fontSize: 14, fontWeight: pw.FontWeight.bold)),
+                    pw.Divider(),
                   ],
                 )
             ),
+            pw.SizedBox(height: 10),
+
+            // Date Row
+            pw.Row(
+              mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+              children: [
+                pw.Text("Date: $date"),
+                pw.Text("User: $receivedBy", style: pw.TextStyle(fontWeight: pw.FontWeight.bold)),
+              ],
+            ),
             pw.SizedBox(height: 20),
 
-            // Table
+            // --- TABLE ---
             pw.Table.fromTextArray(
               context: context,
               border: pw.TableBorder.all(),
@@ -107,7 +121,6 @@ class ReceivingPdfGenerator {
               headerDecoration: const pw.BoxDecoration(color: PdfColors.black),
               cellStyle: const pw.TextStyle(fontSize: 9),
               cellAlignment: pw.Alignment.center,
-              // Adjusted widths to fit new columns
               columnWidths: {
                 0: const pw.FixedColumnWidth(25), // SL
                 1: const pw.FlexColumnWidth(1.5), // Category
@@ -118,9 +131,7 @@ class ReceivingPdfGenerator {
                 6: const pw.FixedColumnWidth(45), // Unit Cost
                 7: const pw.FixedColumnWidth(55), // Total
               },
-              // Updated Headers
               headers: ['SL', 'Category', 'Model / Name', 'Qty', 'MRP', 'Comm %', 'Unit Cost', 'Total'],
-              // Updated Data Mapping
               data: List<List<dynamic>>.generate(products.length, (index) {
                 final p = products[index];
                 final lineTotal = p.buyingPrice * p.currentStock;
@@ -129,17 +140,17 @@ class ReceivingPdfGenerator {
                   p.category,
                   '${p.model}\n${p.name}',
                   '${p.currentStock}',
-                  p.marketPrice.toStringAsFixed(0),        // MRP
-                  '${p.commissionPercent.toStringAsFixed(0)}%', // Commission
-                  p.buyingPrice.toStringAsFixed(0),        // Unit Price (Buying Price)
-                  lineTotal.toStringAsFixed(0),            // Total
+                  p.marketPrice.toStringAsFixed(0),
+                  '${p.commissionPercent.toStringAsFixed(0)}%',
+                  p.buyingPrice.toStringAsFixed(0),
+                  lineTotal.toStringAsFixed(0),
                 ];
               }),
             ),
 
             pw.SizedBox(height: 10),
 
-            // Footer Totals
+            // --- TOTALS ---
             pw.Row(
                 mainAxisAlignment: pw.MainAxisAlignment.end,
                 children: [
@@ -154,26 +165,24 @@ class ReceivingPdfGenerator {
                 ]
             ),
 
-            pw.SizedBox(height: 50),
+            pw.Spacer(),
 
-            // Signatures
+            // --- SIGNATURES (Matched Style) ---
+            pw.SizedBox(height: 30),
             pw.Row(
               mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+              crossAxisAlignment: pw.CrossAxisAlignment.end,
               children: [
-                pw.Column(
-                  crossAxisAlignment: pw.CrossAxisAlignment.start,
-                  children: [
-                    pw.Text("Received By: $receivedBy", style: pw.TextStyle(fontWeight: pw.FontWeight.bold)),
-                    pw.Container(width: 150, height: 1, color: PdfColors.black, margin: const pw.EdgeInsets.only(top: 5)),
-                  ],
-                ),
-                pw.Column(
-                  children: [
-                    pw.Text("Authorized Signature", style: pw.TextStyle(fontWeight: pw.FontWeight.bold)),
-                    pw.Container(width: 150, height: 1, color: PdfColors.black, margin: const pw.EdgeInsets.only(top: 5)),
-                  ],
-                ),
+                _buildSignatureLine("Received By"),
+                _buildSignatureLine("Store In-Charge"),
+                _buildSignatureLine("Authorized Signature"),
               ],
+            ),
+
+            pw.SizedBox(height: 20),
+            pw.Divider(),
+            pw.Center(
+              child: pw.Text("Inventory Management System - A & R Vision Mart", style: pw.TextStyle(fontStyle: pw.FontStyle.italic, color: PdfColors.grey700, fontSize: 10)),
             ),
           ];
         },
@@ -183,6 +192,25 @@ class ReceivingPdfGenerator {
     await Printing.layoutPdf(
       onLayout: (PdfPageFormat format) async => pdf.save(),
       name: 'Batch_Challan_${DateTime.now().millisecondsSinceEpoch}',
+    );
+  }
+
+  // Helper for consistent signature lines (Same as Sales PDF)
+  static pw.Widget _buildSignatureLine(String title) {
+    return pw.Column(
+      mainAxisSize: pw.MainAxisSize.min,
+      children: [
+        pw.Container(
+          width: 100,
+          height: 1,
+          color: PdfColors.black,
+        ),
+        pw.SizedBox(height: 5),
+        pw.Text(
+            title,
+            style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 10)
+        ),
+      ],
     );
   }
 
