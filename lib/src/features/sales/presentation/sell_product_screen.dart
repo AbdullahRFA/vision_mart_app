@@ -6,7 +6,6 @@ import 'pdf_generator.dart';
 
 class SellProductScreen extends ConsumerStatefulWidget {
   final Product product;
-
   const SellProductScreen({super.key, required this.product});
 
   @override
@@ -24,10 +23,8 @@ class _SellProductScreenState extends ConsumerState<SellProductScreen> {
   String _paymentStatus = 'Cash';
   double _finalSellingPrice = 0.0;
   bool _isLoading = false;
-
-  // 1. New State for Sale Type
   bool _isWholesale = false;
-  static const double _wholesaleDiscountPercent = 8.0; // Define your standard rate
+  static const double _wholesaleDiscountPercent = 8.0;
 
   @override
   void initState() {
@@ -40,44 +37,31 @@ class _SellProductScreenState extends ConsumerState<SellProductScreen> {
   void _calculateTotal() {
     final qty = int.tryParse(_qtyController.text) ?? 0;
     final discount = double.tryParse(_discountController.text) ?? 0;
-
     if (qty > 0) {
       final unitPrice = widget.product.marketPrice - (widget.product.marketPrice * (discount / 100));
-      setState(() {
-        _finalSellingPrice = unitPrice * qty;
-      });
+      setState(() => _finalSellingPrice = unitPrice * qty);
     }
   }
 
-  // 2. Toggle Logic
-  void _toggleSaleType(bool value) {
+  void _toggleSaleType(bool isWholesale) {
     setState(() {
-      _isWholesale = value;
-      // Auto-apply discount based on mode
-      if (_isWholesale) {
-        _discountController.text = _wholesaleDiscountPercent.toStringAsFixed(0);
-      } else {
-        _discountController.text = '0';
-      }
+      _isWholesale = isWholesale;
+      _discountController.text = _isWholesale ? _wholesaleDiscountPercent.toStringAsFixed(0) : '0';
     });
-    // Trigger calculation update
     _calculateTotal();
   }
 
   Future<void> _processSale() async {
     if (!_formKey.currentState!.validate()) return;
-
     final qty = int.parse(_qtyController.text);
-
     if (qty > widget.product.currentStock) {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Error: Not enough stock! Max is ${widget.product.currentStock}'), backgroundColor: Colors.red),
+        SnackBar(content: Text('Not enough stock! Max: ${widget.product.currentStock}'), backgroundColor: Colors.red),
       );
       return;
     }
 
     setState(() => _isLoading = true);
-
     try {
       await ref.read(salesRepositoryProvider).sellProduct(
         product: widget.product,
@@ -88,222 +72,279 @@ class _SellProductScreenState extends ConsumerState<SellProductScreen> {
         paymentStatus: _paymentStatus,
       );
 
-      final name = _customerNameController.text.trim();
-      final phone = _customerPhoneController.text.trim();
-      final discount = double.parse(_discountController.text.trim());
-      final finalPrice = _finalSellingPrice;
-
-      if (mounted) {
-        showDialog(
-          context: context,
-          barrierDismissible: false,
-          builder: (ctx) => AlertDialog(
-            title: const Text("Sale Successful!"),
-            content: const Text("Inventory updated. Do you want to print the Invoice?"),
-            actions: [
-              TextButton(
-                onPressed: () {
-                  Navigator.pop(ctx);
-                  Navigator.pop(context);
-                },
-                child: const Text("No, Close"),
-              ),
-              ElevatedButton.icon(
-                icon: const Icon(Icons.print),
-                label: const Text("Print / Share"),
-                onPressed: () {
-                  Navigator.pop(ctx);
-
-                  PdfGenerator.generateInvoice(
-                    customerName: name,
-                    customerPhone: phone,
-                    productName: widget.product.name,
-                    productModel: widget.product.model,
-                    quantity: qty,
-                    mrp: widget.product.marketPrice,
-                    discountPercent: discount,
-                    finalPrice: finalPrice,
-                    paymentStatus: _paymentStatus,
-                  );
-
-                  Navigator.pop(context);
-                },
-              )
-            ],
-          ),
-        );
-      }
+      if (mounted) _showSuccessDialog(qty);
     } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error: $e'), backgroundColor: Colors.red),
-        );
-      }
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: $e')));
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
   }
 
+  void _showSuccessDialog(int qty) {
+    final name = _customerNameController.text.trim();
+    final phone = _customerPhoneController.text.trim();
+    final discount = double.parse(_discountController.text.trim());
+    final finalPrice = _finalSellingPrice;
+
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => AlertDialog(
+        icon: const Icon(Icons.check_circle_rounded, color: Colors.green, size: 48),
+        title: const Text("Sale Successful"),
+        content: const Text("Stock has been updated.\nGenerate invoice now?"),
+        actions: [
+          TextButton(
+            onPressed: () {
+              Navigator.pop(ctx);
+              Navigator.pop(context);
+            },
+            child: const Text("Close"),
+          ),
+          FilledButton.icon(
+            icon: const Icon(Icons.print_rounded),
+            label: const Text("Print Invoice"),
+            onPressed: () {
+              Navigator.pop(ctx);
+              PdfGenerator.generateInvoice(
+                customerName: name,
+                customerPhone: phone,
+                productName: widget.product.name,
+                productModel: widget.product.model,
+                quantity: qty,
+                mrp: widget.product.marketPrice,
+                discountPercent: discount,
+                finalPrice: finalPrice,
+                paymentStatus: _paymentStatus,
+              );
+              Navigator.pop(context);
+            },
+          )
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+
     return Scaffold(
-      appBar: AppBar(title: Text('Sell: ${widget.product.model}')),
+      appBar: AppBar(title: Text(widget.product.model)),
       body: SingleChildScrollView(
-        padding: const EdgeInsets.all(16),
+        padding: const EdgeInsets.all(20),
         child: Form(
           key: _formKey,
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // 3. WHOLESALE TOGGLE SWITCH
-              Container(
-                decoration: BoxDecoration(
-                  color: _isWholesale ? Colors.orange.shade50 : Colors.blue.shade50,
-                  borderRadius: BorderRadius.circular(8),
-                  border: Border.all(color: _isWholesale ? Colors.orange : Colors.blue, width: 1.5),
-                ),
-                child: SwitchListTile(
-                  title: Text(
-                    _isWholesale ? "Wholesale Mode (Business)" : "Retail Mode (Customer)",
-                    style: TextStyle(
-                      fontWeight: FontWeight.bold,
-                      color: _isWholesale ? Colors.deepOrange : Colors.blue.shade900,
+              // 1. SALE MODE SELECTOR
+              Row(
+                children: [
+                  Expanded(
+                    child: _ModeCard(
+                      label: "Retail",
+                      isSelected: !_isWholesale,
+                      onTap: () => _toggleSaleType(false),
+                      icon: Icons.person_outline_rounded,
                     ),
                   ),
-                  subtitle: Text(_isWholesale
-                      ? "Auto-applying $_wholesaleDiscountPercent% discount"
-                      : "Standard MRP pricing"),
-                  value: _isWholesale,
-                  activeColor: Colors.deepOrange,
-                  onChanged: _toggleSaleType,
-                ),
-              ),
-              const SizedBox(height: 16),
-
-              // PRODUCT SUMMARY CARD
-              Card(
-                elevation: 2,
-                child: Padding(
-                  padding: const EdgeInsets.all(12.0),
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text("Available Stock", style: Theme.of(context).textTheme.bodySmall),
-                          Text("${widget.product.currentStock}", style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
-                        ],
-                      ),
-                      Column(
-                        crossAxisAlignment: CrossAxisAlignment.end,
-                        children: [
-                          Text("Market Price (MRP)", style: Theme.of(context).textTheme.bodySmall),
-                          Text(widget.product.marketPrice.toStringAsFixed(0), style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
-                        ],
-                      ),
-                    ],
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: _ModeCard(
+                      label: "Wholesale",
+                      isSelected: _isWholesale,
+                      onTap: () => _toggleSaleType(true),
+                      icon: Icons.store_mall_directory_outlined,
+                    ),
                   ),
+                ],
+              ),
+              const SizedBox(height: 24),
+
+              // 2. PRODUCT INFO & STOCK
+              Container(
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: isDark ? const Color(0xFF1E293B) : Colors.blue.shade50,
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: Colors.blue.withOpacity(0.3)),
+                ),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text("Available Stock", style: TextStyle(fontSize: 12)),
+                        Text(
+                          "${widget.product.currentStock} Units",
+                          style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                        ),
+                      ],
+                    ),
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.end,
+                      children: [
+                        const Text("Market Price", style: TextStyle(fontSize: 12)),
+                        Text(
+                          "৳${widget.product.marketPrice.toStringAsFixed(0)}",
+                          style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.blue),
+                        ),
+                      ],
+                    ),
+                  ],
                 ),
               ),
-              const SizedBox(height: 20),
+              const SizedBox(height: 24),
 
-              // CUSTOMER DETAILS
-              const Text("Customer Details", style: TextStyle(fontWeight: FontWeight.bold, color: Colors.blue)),
-              const SizedBox(height: 10),
+              // 3. INPUT FIELDS
+              const Text("Customer Info", style: TextStyle(fontWeight: FontWeight.bold)),
+              const SizedBox(height: 12),
               TextFormField(
                 controller: _customerNameController,
-                decoration: const InputDecoration(
-                    labelText: "Customer Name",
-                    prefixIcon: Icon(Icons.person),
-                    border: OutlineInputBorder()
+                textInputAction: TextInputAction.next,
+                decoration: InputDecoration(
+                  labelText: "Customer Name",
+                  prefixIcon: const Icon(Icons.person),
+                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
                 ),
                 validator: (v) => v!.isEmpty ? 'Required' : null,
               ),
-              const SizedBox(height: 10),
+              const SizedBox(height: 16),
               TextFormField(
                 controller: _customerPhoneController,
-                decoration: const InputDecoration(
-                    labelText: "Phone Number (Optional)",
-                    prefixIcon: Icon(Icons.phone),
-                    border: OutlineInputBorder()
-                ),
                 keyboardType: TextInputType.phone,
+                textInputAction: TextInputAction.next,
+                decoration: InputDecoration(
+                  labelText: "Phone Number",
+                  prefixIcon: const Icon(Icons.phone),
+                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                ),
               ),
 
-              const SizedBox(height: 20),
-              const Text("Sale Details", style: TextStyle(fontWeight: FontWeight.bold, color: Colors.blue)),
-              const SizedBox(height: 10),
+              const SizedBox(height: 24),
+              const Text("Transaction Details", style: TextStyle(fontWeight: FontWeight.bold)),
+              const SizedBox(height: 12),
 
               Row(
                 children: [
                   Expanded(
                     child: TextFormField(
                       controller: _qtyController,
-                      decoration: const InputDecoration(labelText: "Quantity"),
                       keyboardType: TextInputType.number,
+                      decoration: InputDecoration(
+                        labelText: "Quantity",
+                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                      ),
                       validator: (v) => v!.isEmpty ? 'Required' : null,
                     ),
                   ),
-                  const SizedBox(width: 10),
+                  const SizedBox(width: 12),
                   Expanded(
                     child: TextFormField(
                       controller: _discountController,
-                      // Allow editing even in wholesale mode, but it auto-fills initially
-                      decoration: const InputDecoration(labelText: "Discount (%)"),
                       keyboardType: TextInputType.number,
+                      decoration: InputDecoration(
+                        labelText: "Discount (%)",
+                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                      ),
                     ),
                   ),
                 ],
               ),
-              const SizedBox(height: 10),
+              const SizedBox(height: 16),
               DropdownButtonFormField<String>(
                 value: _paymentStatus,
-                decoration: const InputDecoration(labelText: "Payment Status"),
                 items: ['Cash', 'Due'].map((e) => DropdownMenuItem(value: e, child: Text(e))).toList(),
                 onChanged: (v) => setState(() => _paymentStatus = v!),
+                decoration: InputDecoration(
+                  labelText: "Payment Type",
+                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                  prefixIcon: const Icon(Icons.payment),
+                ),
               ),
 
-              const SizedBox(height: 30),
+              const SizedBox(height: 32),
 
-              // TOTAL CARD
+              // 4. TOTAL & ACTION
               Container(
                 padding: const EdgeInsets.all(20),
                 decoration: BoxDecoration(
-                  color: Colors.green.withOpacity(0.1),
-                  border: Border.all(color: Colors.green),
-                  borderRadius: BorderRadius.circular(10),
+                  color: isDark ? const Color(0xFF0F172A) : Colors.black,
+                  borderRadius: BorderRadius.circular(16),
+                  boxShadow: [
+                    BoxShadow(color: Colors.black.withOpacity(0.2), blurRadius: 10, offset: const Offset(0, 5))
+                  ],
                 ),
                 child: Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    const Text("NET TOTAL:", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                    const Text("Net Total:", style: TextStyle(color: Colors.white70, fontSize: 16)),
                     Text(
-                      _finalSellingPrice.toStringAsFixed(2),
-                      style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: Colors.green),
+                      "৳${_finalSellingPrice.toStringAsFixed(0)}",
+                      style: const TextStyle(color: Colors.white, fontSize: 24, fontWeight: FontWeight.bold),
                     ),
                   ],
                 ),
               ),
-
               const SizedBox(height: 20),
+
               SizedBox(
                 width: double.infinity,
-                height: 55,
+                height: 56,
                 child: ElevatedButton.icon(
                   onPressed: _isLoading ? null : _processSale,
-                  icon: const Icon(Icons.check_circle),
+                  icon: const Icon(Icons.check_circle_outline),
                   label: _isLoading
                       ? const CircularProgressIndicator(color: Colors.white)
-                      : const Text("CONFIRM SALE", style: TextStyle(fontSize: 16)),
+                      : const Text("CONFIRM SALE", style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
                   style: ElevatedButton.styleFrom(
                     backgroundColor: Theme.of(context).primaryColor,
                     foregroundColor: Colors.white,
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
                   ),
                 ),
               ),
             ],
           ),
+        ),
+      ),
+    );
+  }
+}
+
+class _ModeCard extends StatelessWidget {
+  final String label;
+  final bool isSelected;
+  final VoidCallback onTap;
+  final IconData icon;
+
+  const _ModeCard({required this.label, required this.isSelected, required this.onTap, required this.icon});
+
+  @override
+  Widget build(BuildContext context) {
+    final color = isSelected ? Theme.of(context).primaryColor : Colors.grey;
+
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(12),
+      child: Container(
+        padding: const EdgeInsets.symmetric(vertical: 16),
+        decoration: BoxDecoration(
+          color: isSelected ? color.withOpacity(0.1) : Colors.transparent,
+          border: Border.all(color: isSelected ? color : Colors.grey.shade300, width: 2),
+          borderRadius: BorderRadius.circular(12),
+        ),
+        child: Column(
+          children: [
+            Icon(icon, color: color),
+            const SizedBox(height: 4),
+            Text(
+                label,
+                style: TextStyle(fontWeight: FontWeight.bold, color: color)
+            ),
+          ],
         ),
       ),
     );
