@@ -98,6 +98,52 @@ class InventoryRepository {
     await batch.commit();
   }
 
+  // 👇 4. NEW: Update Product (ACID)
+  Future<void> updateProduct(Product product) async {
+    final user = _ref.read(authServiceProvider).currentUser;
+    // Batch ensures Atomicity: The update and the log happen together.
+    final batch = _firestore.batch();
+
+    // A. Update the Product Document
+    final docRef = _firestore.collection('products').doc(product.id);
+    batch.update(docRef, product.toMap());
+
+    // B. Create Audit Log
+    final logRef = _firestore.collection('inventory_logs').doc();
+    batch.set(logRef, {
+      'type': 'UPDATE',
+      'productId': product.id,
+      'productModel': product.model,
+      'updatedBy': user?.email ?? 'Admin',
+      'changes': 'Details Updated (Price/Name/etc)',
+      'timestamp': FieldValue.serverTimestamp(),
+    });
+
+    await batch.commit();
+  }
+
+  // 👇 5. NEW: Delete Product (ACID)
+  Future<void> deleteProduct(String productId, String model) async {
+    final user = _ref.read(authServiceProvider).currentUser;
+    final batch = _firestore.batch();
+
+    // A. Delete the Product Document
+    final docRef = _firestore.collection('products').doc(productId);
+    batch.delete(docRef);
+
+    // B. Create Audit Log (So we know who deleted what)
+    final logRef = _firestore.collection('inventory_logs').doc();
+    batch.set(logRef, {
+      'type': 'DELETE',
+      'productId': productId,
+      'productModel': model,
+      'deletedBy': user?.email ?? 'Admin',
+      'timestamp': FieldValue.serverTimestamp(),
+    });
+
+    await batch.commit();
+  }
+
   // Watch Inventory Stream
   Stream<List<Product>> watchInventory() {
     return _firestore
@@ -116,7 +162,7 @@ class InventoryRepository {
   }
 }
 
-// 👇 THIS PROVIDER WAS MISSING, CAUSING THE ERRORS
+// Provider for UI
 final inventoryStreamProvider = StreamProvider<List<Product>>((ref) {
   final repository = ref.watch(inventoryRepositoryProvider);
   return repository.watchInventory();
