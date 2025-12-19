@@ -33,6 +33,55 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
     }
   }
 
+  // 👇 Logic to show "Forgot Password" Dialog
+  void _showForgotPasswordDialog() {
+    final resetEmailController = TextEditingController(text: _emailController.text);
+
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text("Reset Password"),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Text("Enter your admin email. We will send you a password reset link."),
+            const SizedBox(height: 10),
+            TextField(
+              controller: resetEmailController,
+              decoration: const InputDecoration(labelText: "Email Address", border: OutlineInputBorder()),
+              keyboardType: TextInputType.emailAddress,
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text("Cancel")),
+          ElevatedButton(
+            onPressed: () async {
+              if (resetEmailController.text.isEmpty) return;
+              Navigator.pop(ctx); // Close Dialog
+
+              try {
+                await ref.read(authServiceProvider).sendPasswordResetEmail(resetEmailController.text.trim());
+                if (mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text("Reset link sent! Check your email."), backgroundColor: Colors.green),
+                  );
+                }
+              } catch (e) {
+                if (mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text("Error: ${e.toString()}"), backgroundColor: Colors.red),
+                  );
+                }
+              }
+            },
+            child: const Text("Send Link"),
+          )
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -70,7 +119,17 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
                 ),
                 obscureText: true,
               ),
-              const SizedBox(height: 24),
+
+              // 👇 Forgot Password Button
+              Align(
+                alignment: Alignment.centerRight,
+                child: TextButton(
+                  onPressed: _showForgotPasswordDialog,
+                  child: const Text("Forgot Password?"),
+                ),
+              ),
+
+              const SizedBox(height: 10),
               ElevatedButton(
                 onPressed: _isLoading ? null : _login,
                 style: ElevatedButton.styleFrom(

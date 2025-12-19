@@ -1,12 +1,12 @@
 import 'package:firebase_auth/firebase_auth.dart';
 
-// 1. Define the Interface (Service-Oriented)
-// This allows us to easily mock authentication for testing later.
+// 1. Define the Interface
 abstract class IAuthService {
   Stream<User?> get authStateChanges;
   Future<User?> signIn(String email, String password);
   Future<User?> register(String email, String password);
   Future<void> signOut();
+  Future<void> sendPasswordResetEmail(String email); // 👈 New Method
   User? get currentUser;
 }
 
@@ -29,7 +29,6 @@ class FirebaseAuthService implements IAuthService {
       );
       return credential.user;
     } on FirebaseAuthException catch (e) {
-      // Handle specific Firebase errors here (e.g., user-not-found)
       throw _handleAuthException(e);
     }
   }
@@ -50,12 +49,23 @@ class FirebaseAuthService implements IAuthService {
   @override
   Future<void> signOut() => _firebaseAuth.signOut();
 
+  // 👇 Implementation of Password Reset
+  @override
+  Future<void> sendPasswordResetEmail(String email) async {
+    try {
+      await _firebaseAuth.sendPasswordResetEmail(email: email);
+    } on FirebaseAuthException catch (e) {
+      throw _handleAuthException(e);
+    }
+  }
+
   String _handleAuthException(FirebaseAuthException e) {
     switch (e.code) {
       case 'weak-password': return 'The password provided is too weak.';
       case 'email-already-in-use': return 'The account already exists for that email.';
       case 'user-not-found': return 'No user found for that email.';
       case 'wrong-password': return 'Wrong password provided.';
+      case 'invalid-email': return 'The email address is invalid.';
       default: return 'An error occurred. Please try again.';
     }
   }
