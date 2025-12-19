@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../data/inventory_repository.dart';
+import 'receiving_pdf_generator.dart'; // 👈 1. Import This
 
 class ReceiveProductScreen extends ConsumerStatefulWidget {
   const ReceiveProductScreen({super.key});
@@ -47,6 +48,7 @@ class _ReceiveProductScreenState extends ConsumerState<ReceiveProductScreen> {
     setState(() => _isLoading = true);
 
     try {
+      // 1. Save to Database
       await ref.read(inventoryRepositoryProvider).receiveProduct(
         name: _nameController.text.trim(),
         model: _modelController.text.trim(),
@@ -57,16 +59,64 @@ class _ReceiveProductScreenState extends ConsumerState<ReceiveProductScreen> {
         commission: double.parse(_commissionController.text.trim()),
       );
 
+      // 2. Capture Data for PDF before clearing (Optional, if you want to clear)
+      final pdfData = {
+        'name': _nameController.text.trim(),
+        'model': _modelController.text.trim(),
+        'category': _categoryController.text.trim(),
+        'qty': int.parse(_qtyController.text.trim()),
+        'mrp': double.parse(_mrpController.text.trim()),
+        'buyPrice': _calculatedBuyingPrice,
+      };
+
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Product Received Successfully!')),
+        // 3. Show Success & Ask to Print
+        showDialog(
+          context: context,
+          barrierDismissible: false,
+          builder: (ctx) => AlertDialog(
+            title: const Row(
+              children: [
+                Icon(Icons.check_circle, color: Colors.green),
+                SizedBox(width: 10),
+                Text("Stock Added!"),
+              ],
+            ),
+            content: const Text("Product received successfully.\nGenerate Inward Challan / Memo?"),
+            actions: [
+              TextButton(
+                onPressed: () {
+                  Navigator.pop(ctx); // Close Dialog
+                  Navigator.pop(context); // Go back to Dashboard
+                },
+                child: const Text("No, Just Save"),
+              ),
+              ElevatedButton.icon(
+                icon: const Icon(Icons.print),
+                label: const Text("Print Memo"),
+                onPressed: () {
+                  Navigator.pop(ctx); // Close Dialog
+
+                  // 4. Generate PDF
+                  ReceivingPdfGenerator.generateReceivingMemo(
+                    productName: pdfData['name'] as String,
+                    model: pdfData['model'] as String,
+                    category: pdfData['category'] as String,
+                    quantity: pdfData['qty'] as int,
+                    mrp: pdfData['mrp'] as double,
+                    buyingPrice: pdfData['buyPrice'] as double,
+                    receivedBy: "Admin", // You can fetch actual user email if needed
+                  );
+
+                  // Then go back
+                  Navigator.pop(context);
+                },
+              )
+            ],
+          ),
         );
-        Navigator.pop(context); // Go back to Dashboard
       }
     } catch (e, stackTrace) {
-      // ---------------------------------------------------------
-      // 👇 THIS PRINTS THE ERROR TO YOUR DEBUG CONSOLE
-      // ---------------------------------------------------------
       debugPrint("🔴 ERROR SAVING PRODUCT: $e");
       debugPrint("🔍 STACK TRACE: $stackTrace");
 
