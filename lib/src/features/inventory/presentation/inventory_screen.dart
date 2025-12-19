@@ -16,8 +16,18 @@ class _InventoryScreenState extends ConsumerState<InventoryScreen> {
   String _searchQuery = "";
   String _selectedCategory = "All";
 
+  // 👇 CHANGED: Updated category list to match your business needs
   final List<String> _categories = [
-    "All", "Low Stock", "TV", "Refrigerator", "AC", "Fan", "Washing Machine", "Other"
+    "All",
+    "Low Stock",
+    "TV",
+    "Refrigerator",
+    "AC",
+    "Oven",
+    "Electric Cooker",
+    "Washing Machine",
+    "Fan",
+    "Other"
   ];
 
   @override
@@ -105,7 +115,8 @@ class _InventoryScreenState extends ConsumerState<InventoryScreen> {
 
                   if (_selectedCategory == "All") return true;
                   if (_selectedCategory == "Low Stock") return p.currentStock < 5;
-                  return p.category.toLowerCase().contains(_selectedCategory.toLowerCase());
+                  // Standardizes comparison
+                  return p.category.toLowerCase() == _selectedCategory.toLowerCase();
                 }).toList();
 
                 if (filteredProducts.isEmpty) {
