@@ -105,6 +105,9 @@ class AnalyticsScreen extends ConsumerWidget {
                   );
                 }
 
+                // 👇 GROUPING LOGIC
+                final groupedTransactions = _groupTransactions(salesData);
+
                 return ListView(
                   padding: const EdgeInsets.all(16),
                   children: [
@@ -141,29 +144,44 @@ class AnalyticsScreen extends ConsumerWidget {
                       isHorizontal: true,
                     ),
 
-                    const SizedBox(height: 32),
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        const Text("Recent Transactions", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-                        Text("${salesData.length} Records", style: const TextStyle(fontSize: 12, color: Colors.grey)),
-                      ],
-                    ),
-                    const SizedBox(height: 12),
+                    const SizedBox(height: 25),
 
-                    // TRANSACTIONS LIST
-                    ...salesData.map((sale) {
-                      final date = (sale['timestamp'] as Timestamp).toDate();
-                      final dateStr = DateFormat('dd MMM, hh:mm a').format(date);
+                    // 👇 RENDER GROUPED TRANSACTIONS
+                    ...groupedTransactions.entries.map((entry) {
+                      return Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          // Date Header
+                          Padding(
+                            padding: const EdgeInsets.symmetric(vertical: 12.0),
+                            child: Text(
+                              entry.key, // "Today", "Yesterday", or Date
+                              style: TextStyle(
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.bold,
+                                  color: isDark ? Colors.white70 : Colors.grey[800]
+                              ),
+                            ),
+                          ),
+                          // List of Cards for this date
+                          ...entry.value.map((sale) {
+                            final date = (sale['timestamp'] as Timestamp).toDate();
+                            final timeStr = DateFormat('hh:mm a').format(date); // Just time needed now
 
-                      return _TransactionCard(
-                        title: sale['productName'] ?? 'Unknown',
-                        subtitle: sale['customerName'] ?? 'Guest',
-                        date: dateStr,
-                        amount: "৳${sale['totalAmount']}",
-                        profit: "৳${(sale['profit'] as num).toStringAsFixed(0)}",
+                            return _TransactionCard(
+                              title: sale['productName'] ?? 'Unknown',
+                              subtitle: sale['customerName'] ?? 'Guest',
+                              date: timeStr, // Showing only time inside card
+                              amount: "৳${sale['totalAmount']}",
+                              profit: "৳${(sale['profit'] as num).toStringAsFixed(0)}",
+                            );
+                          }),
+                        ],
                       );
                     }),
+
+                    // Bottom padding
+                    const SizedBox(height: 20),
                   ],
                 );
               },
@@ -174,6 +192,34 @@ class AnalyticsScreen extends ConsumerWidget {
         ],
       ),
     );
+  }
+
+  // 👇 HELPER: Group transactions by Date
+  Map<String, List<Map<String, dynamic>>> _groupTransactions(List<Map<String, dynamic>> sales) {
+    final Map<String, List<Map<String, dynamic>>> grouped = {};
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    final yesterday = today.subtract(const Duration(days: 1));
+
+    for (var sale in sales) {
+      final date = (sale['timestamp'] as Timestamp).toDate();
+      final checkDate = DateTime(date.year, date.month, date.day);
+
+      String headerKey;
+      if (checkDate == today) {
+        headerKey = "Today";
+      } else if (checkDate == yesterday) {
+        headerKey = "Yesterday";
+      } else {
+        headerKey = DateFormat('dd MMM yyyy').format(date);
+      }
+
+      if (grouped[headerKey] == null) {
+        grouped[headerKey] = [];
+      }
+      grouped[headerKey]!.add(sale);
+    }
+    return grouped;
   }
 
   void _setRange(WidgetRef ref, String type) {
