@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../data/inventory_repository.dart';
-import '../domain/product_model.dart'; // Ensure this import exists
+import '../domain/product_model.dart';
 import 'receiving_pdf_generator.dart';
 
 class ReceiveProductScreen extends ConsumerStatefulWidget {
@@ -22,11 +22,12 @@ class _ReceiveProductScreenState extends ConsumerState<ReceiveProductScreen> {
   final _mrpController = TextEditingController();
   final _commissionController = TextEditingController();
 
+  // State
   String? _selectedCategory;
   double _calculatedBuyingPrice = 0.0;
   bool _isLoading = false;
 
-  // 👇 NEW: List to hold mixed products before saving
+  // Batch List
   final List<Product> _tempBatchList = [];
 
   final List<String> _categoryOptions = [
@@ -51,7 +52,6 @@ class _ReceiveProductScreenState extends ConsumerState<ReceiveProductScreen> {
     });
   }
 
-  // 👇 CHANGED: Logic to ADD to local list instead of DB
   void _addToList() {
     if (!_formKey.currentState!.validate()) return;
     if (_selectedCategory == null) return;
@@ -70,32 +70,39 @@ class _ReceiveProductScreenState extends ConsumerState<ReceiveProductScreen> {
 
     setState(() {
       _tempBatchList.add(product);
-      // Clear specific fields for next entry, keep others if needed
+      // Clear specific fields to speed up entry
       _modelController.clear();
       _nameController.clear();
       _capacityController.clear();
       _qtyController.clear();
-      // We might keep MRP/Commission if entering similar items, but let's clear for safety
-      _mrpController.clear();
-      _commissionController.clear();
-      _calculatedBuyingPrice = 0.0;
+      // Keep pricing fields if user is adding similar items, or clear them:
+      // _mrpController.clear();
+      // _commissionController.clear();
     });
 
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text("${product.category} Added to List! Add more or Save All."), duration: const Duration(seconds: 1)),
+      SnackBar(content: Text("${product.category} Added! (${_tempBatchList.length} items total)"), duration: const Duration(seconds: 1)),
     );
   }
 
-  // 👇 NEW: Logic to Save the whole Batch
   Future<void> _submitBatch() async {
     if (_tempBatchList.isEmpty) return;
 
     setState(() => _isLoading = true);
 
     try {
+      // 1. Save to DB
       await ref.read(inventoryRepositoryProvider).receiveBatchProducts(_tempBatchList);
 
-      if (mounted) _showBatchSuccessDialog();
+      // 2. Create a copy of the list for the PDF (before clearing UI)
+      final itemsSaved = List<Product>.from(_tempBatchList);
+
+      // 3. Clear UI
+      setState(() => _tempBatchList.clear());
+
+      // 4. Show Success Dialog with PDF Option
+      if (mounted) _showBatchSuccessDialog(itemsSaved);
+
     } catch (e) {
       debugPrint("Error: $e");
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: $e'), backgroundColor: Colors.red));
@@ -104,23 +111,33 @@ class _ReceiveProductScreenState extends ConsumerState<ReceiveProductScreen> {
     }
   }
 
-  void _showBatchSuccessDialog() {
+  void _showBatchSuccessDialog(List<Product> itemsSaved) {
     showDialog(
       context: context,
       barrierDismissible: false,
       builder: (ctx) => AlertDialog(
         icon: const Icon(Icons.check_circle_rounded, color: Colors.green, size: 48),
         title: const Text("Batch Received!"),
-        content: Text("Successfully added ${_tempBatchList.length} items to inventory."),
+        content: Text("Successfully added ${itemsSaved.length} items to inventory.\n\nGenerate Challan PDF?"),
         actions: [
           TextButton(
             onPressed: () {
               Navigator.pop(ctx);
-              Navigator.pop(context);
             },
             child: const Text("Close"),
           ),
-          // You can add a loop here to generate a master PDF if needed
+          FilledButton.icon(
+            icon: const Icon(Icons.print_rounded),
+            label: const Text("Print Challan"),
+            onPressed: () {
+              Navigator.pop(ctx);
+              // Call the new Batch Generator
+              ReceivingPdfGenerator.generateBatchReceivingMemo(
+                products: itemsSaved,
+                receivedBy: "Admin", // Replace with actual user email if available
+              );
+            },
+          )
         ],
       ),
     );
@@ -134,15 +151,12 @@ class _ReceiveProductScreenState extends ConsumerState<ReceiveProductScreen> {
       appBar: AppBar(
         title: const Text('Receive Stock (Batch)'),
         actions: [
-          // Show item count badge
           if (_tempBatchList.isNotEmpty)
             Padding(
               padding: const EdgeInsets.only(right: 16),
-              child: Center(
-                child: Badge(
-                  label: Text('${_tempBatchList.length}'),
-                  child: const Icon(Icons.shopping_cart_outlined),
-                ),
+              child: Badge(
+                label: Text('${_tempBatchList.length}'),
+                child: const Icon(Icons.shopping_cart_outlined),
               ),
             )
         ],
@@ -161,7 +175,6 @@ class _ReceiveProductScreenState extends ConsumerState<ReceiveProductScreen> {
                     _SectionHeader(title: "Add Item Details", icon: Icons.add_circle_outline),
                     const SizedBox(height: 16),
 
-                    // Row 1: Category & Model
                     Row(
                       children: [
                         Expanded(
@@ -189,7 +202,6 @@ class _ReceiveProductScreenState extends ConsumerState<ReceiveProductScreen> {
                     ),
                     const SizedBox(height: 10),
 
-                    // Row 2: Name & Capacity
                     Row(
                       children: [
                         Expanded(
@@ -212,7 +224,6 @@ class _ReceiveProductScreenState extends ConsumerState<ReceiveProductScreen> {
                     ),
                     const SizedBox(height: 10),
 
-                    // Row 3: Pricing
                     Row(
                       children: [
                         Expanded(
@@ -249,7 +260,6 @@ class _ReceiveProductScreenState extends ConsumerState<ReceiveProductScreen> {
 
                     const SizedBox(height: 20),
 
-                    // ADD BUTTON
                     SizedBox(
                       width: double.infinity,
                       height: 50,
@@ -268,7 +278,6 @@ class _ReceiveProductScreenState extends ConsumerState<ReceiveProductScreen> {
                     const Divider(thickness: 2),
                     _SectionHeader(title: "Items to Save (${_tempBatchList.length})", icon: Icons.list_alt),
 
-                    // --- BATCH LIST PREVIEW ---
                     if (_tempBatchList.isEmpty)
                       const Padding(
                         padding: EdgeInsets.all(20.0),
@@ -301,7 +310,6 @@ class _ReceiveProductScreenState extends ConsumerState<ReceiveProductScreen> {
                         },
                       ),
 
-                    // Add extra space at bottom for the FAB/Button
                     const SizedBox(height: 80),
                   ],
                 ),
@@ -309,7 +317,6 @@ class _ReceiveProductScreenState extends ConsumerState<ReceiveProductScreen> {
             ),
           ),
 
-          // --- BOTTOM ACTION BAR ---
           Container(
             padding: const EdgeInsets.all(16),
             decoration: BoxDecoration(
