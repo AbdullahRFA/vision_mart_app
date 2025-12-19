@@ -1,11 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../inventory/domain/product_model.dart';
+import '../../inventory/data/inventory_repository.dart'; // Needed for provider
 import '../data/sales_repository.dart';
 import 'pdf_generator.dart';
 
 class SellProductScreen extends ConsumerStatefulWidget {
   final Product product;
+  // We keep 'product' as the "initial" selection
   const SellProductScreen({super.key, required this.product});
 
   @override
@@ -15,64 +17,109 @@ class SellProductScreen extends ConsumerStatefulWidget {
 class _SellProductScreenState extends ConsumerState<SellProductScreen> {
   final _formKey = GlobalKey<FormState>();
 
+  // Customer Info (Global for Invoice)
   final _customerNameController = TextEditingController();
   final _customerPhoneController = TextEditingController();
+
+  // Item Details
+  Product? _selectedProduct;
   final _qtyController = TextEditingController(text: '1');
   final _discountController = TextEditingController(text: '0');
 
   String _paymentStatus = 'Cash';
-  double _finalSellingPrice = 0.0;
+  double _currentLineTotal = 0.0;
+
   bool _isLoading = false;
   bool _isWholesale = false;
-  static const double _wholesaleDiscountPercent = 8.0;
+
+  // The Cart
+  final List<CartItem> _cartItems = [];
 
   @override
   void initState() {
     super.initState();
-    _calculateTotal();
-    _qtyController.addListener(_calculateTotal);
-    _discountController.addListener(_calculateTotal);
+    _selectedProduct = widget.product;
+    _calculateLineTotal();
+    _qtyController.addListener(_calculateLineTotal);
+    _discountController.addListener(_calculateLineTotal);
   }
 
-  void _calculateTotal() {
+  void _calculateLineTotal() {
+    if (_selectedProduct == null) return;
     final qty = int.tryParse(_qtyController.text) ?? 0;
     final discount = double.tryParse(_discountController.text) ?? 0;
     if (qty > 0) {
-      final unitPrice = widget.product.marketPrice - (widget.product.marketPrice * (discount / 100));
-      setState(() => _finalSellingPrice = unitPrice * qty);
+      final unitPrice = _selectedProduct!.marketPrice - (_selectedProduct!.marketPrice * (discount / 100));
+      setState(() => _currentLineTotal = unitPrice * qty);
     }
   }
 
-  void _toggleSaleType(bool isWholesale) {
+  void _addToCart() {
+    if (!_formKey.currentState!.validate()) return;
+    if (_selectedProduct == null) return;
+
+    final qty = int.parse(_qtyController.text);
+
+    // Check Stock
+    if (qty > _selectedProduct!.currentStock) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Insufficient Stock! Max: ${_selectedProduct!.currentStock}'), backgroundColor: Colors.red),
+      );
+      return;
+    }
+
+    final item = CartItem(
+      product: _selectedProduct!,
+      quantity: qty,
+      discountPercent: double.parse(_discountController.text),
+      finalPrice: _currentLineTotal,
+    );
+
     setState(() {
-      _isWholesale = isWholesale;
-      _discountController.text = _isWholesale ? _wholesaleDiscountPercent.toStringAsFixed(0) : '0';
+      _cartItems.add(item);
+      // Reset Item fields
+      _qtyController.text = '1';
+      // We keep discount same for convenience or reset it
+      _calculateLineTotal();
     });
-    _calculateTotal();
+
+    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Added to Cart"), duration: Duration(milliseconds: 600)));
   }
 
-  Future<void> _processSale() async {
-    if (!_formKey.currentState!.validate()) return;
-    final qty = int.parse(_qtyController.text);
-    if (qty > widget.product.currentStock) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Not enough stock! Max: ${widget.product.currentStock}'), backgroundColor: Colors.red),
-      );
+  Future<void> _processBatchSale() async {
+    if (_cartItems.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Cart is empty!")));
+      return;
+    }
+    if (_customerNameController.text.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Enter Customer Name")));
       return;
     }
 
     setState(() => _isLoading = true);
     try {
-      await ref.read(salesRepositoryProvider).sellProduct(
-        product: widget.product,
+      await ref.read(salesRepositoryProvider).sellBatchProducts(
+        items: _cartItems,
         customerName: _customerNameController.text.trim(),
         customerPhone: _customerPhoneController.text.trim(),
-        quantity: qty,
-        discountPercent: double.parse(_discountController.text.trim()),
         paymentStatus: _paymentStatus,
       );
 
-      if (mounted) _showSuccessDialog(qty);
+      // Create copy for PDF
+      final soldItems = List<CartItem>.from(_cartItems);
+      final cName = _customerNameController.text;
+      final cPhone = _customerPhoneController.text;
+      final payStatus = _paymentStatus;
+
+      // Clear UI
+      if (mounted) {
+        setState(() {
+          _cartItems.clear();
+          _customerNameController.clear();
+          _customerPhoneController.clear();
+        });
+        _showSuccessDialog(soldItems, cName, cPhone, payStatus);
+      }
     } catch (e) {
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: $e')));
     } finally {
@@ -80,19 +127,14 @@ class _SellProductScreenState extends ConsumerState<SellProductScreen> {
     }
   }
 
-  void _showSuccessDialog(int qty) {
-    final name = _customerNameController.text.trim();
-    final phone = _customerPhoneController.text.trim();
-    final discount = double.parse(_discountController.text.trim());
-    final finalPrice = _finalSellingPrice;
-
+  void _showSuccessDialog(List<CartItem> items, String name, String phone, String status) {
     showDialog(
       context: context,
       barrierDismissible: false,
       builder: (ctx) => AlertDialog(
         icon: const Icon(Icons.check_circle_rounded, color: Colors.green, size: 48),
         title: const Text("Sale Successful"),
-        content: const Text("Stock has been updated.\nGenerate invoice now?"),
+        content: Text("${items.length} items sold.\nGenerate invoice now?"),
         actions: [
           TextButton(
             onPressed: () {
@@ -106,16 +148,11 @@ class _SellProductScreenState extends ConsumerState<SellProductScreen> {
             label: const Text("Print Invoice"),
             onPressed: () {
               Navigator.pop(ctx);
-              PdfGenerator.generateInvoice(
+              PdfGenerator.generateBatchInvoice(
+                items: items,
                 customerName: name,
                 customerPhone: phone,
-                productName: widget.product.name,
-                productModel: widget.product.model,
-                quantity: qty,
-                mrp: widget.product.marketPrice,
-                discountPercent: discount,
-                finalPrice: finalPrice,
-                paymentStatus: _paymentStatus,
+                paymentStatus: status,
               );
               Navigator.pop(context);
             },
@@ -127,10 +164,15 @@ class _SellProductScreenState extends ConsumerState<SellProductScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final inventoryAsync = ref.watch(inventoryStreamProvider); // Need to fetch all products for dropdown
     final isDark = Theme.of(context).brightness == Brightness.dark;
 
+    // Calculate Grand Total of Cart
+    double cartTotal = 0;
+    for (var i in _cartItems) cartTotal += i.finalPrice;
+
     return Scaffold(
-      appBar: AppBar(title: Text(widget.product.model)),
+      appBar: AppBar(title: const Text("New Sale (POS)")),
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(20),
         child: Form(
@@ -138,215 +180,248 @@ class _SellProductScreenState extends ConsumerState<SellProductScreen> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // 1. SALE MODE SELECTOR
+              // 1. CUSTOMER INFO (Global)
+              _SectionHeader(title: "Customer Info", icon: Icons.person),
+              const SizedBox(height: 10),
               Row(
                 children: [
                   Expanded(
-                    child: _ModeCard(
-                      label: "Retail",
-                      isSelected: !_isWholesale,
-                      onTap: () => _toggleSaleType(false),
-                      icon: Icons.person_outline_rounded,
+                    flex: 2,
+                    child: TextFormField(
+                      controller: _customerNameController,
+                      decoration: _inputDecor("Customer Name", Icons.person_outline),
+                      validator: (v) => v!.isEmpty ? 'Req' : null,
                     ),
                   ),
-                  const SizedBox(width: 12),
+                  const SizedBox(width: 10),
                   Expanded(
-                    child: _ModeCard(
-                      label: "Wholesale",
-                      isSelected: _isWholesale,
-                      onTap: () => _toggleSaleType(true),
-                      icon: Icons.store_mall_directory_outlined,
+                    child: TextFormField(
+                      controller: _customerPhoneController,
+                      keyboardType: TextInputType.phone,
+                      decoration: _inputDecor("Phone", Icons.phone),
                     ),
                   ),
                 ],
               ),
-              const SizedBox(height: 24),
+              const SizedBox(height: 20),
 
-              // 2. PRODUCT INFO & STOCK
+              // 2. ADD ITEM SECTION
               Container(
                 padding: const EdgeInsets.all(16),
                 decoration: BoxDecoration(
                   color: isDark ? const Color(0xFF1E293B) : Colors.blue.shade50,
-                  borderRadius: BorderRadius.circular(12),
+                  borderRadius: BorderRadius.circular(16),
                   border: Border.all(color: Colors.blue.withOpacity(0.3)),
                 ),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
+                    const Text("Add Item to Cart", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                    const SizedBox(height: 12),
+
+                    // Product Dropdown
+                    inventoryAsync.when(
+                      data: (products) {
+                        return DropdownButtonFormField<Product>(
+                          isExpanded: true,
+                          value: _selectedProduct != null && products.any((p) => p.id == _selectedProduct!.id)
+                              ? products.firstWhere((p) => p.id == _selectedProduct!.id)
+                              : null,
+                          hint: const Text("Select Product"),
+                          items: products.map((p) {
+                            return DropdownMenuItem(
+                              value: p,
+                              child: Text(
+                                "${p.model} - ${p.name} (Stock: ${p.currentStock})",
+                                overflow: TextOverflow.ellipsis,
+                                style: TextStyle(
+                                    color: p.currentStock == 0 ? Colors.red : null
+                                ),
+                              ),
+                            );
+                          }).toList(),
+                          onChanged: (p) {
+                            setState(() {
+                              _selectedProduct = p;
+                              _calculateLineTotal();
+                            });
+                          },
+                          decoration: _inputDecor("Product"),
+                        );
+                      },
+                      loading: () => const LinearProgressIndicator(),
+                      error: (e, s) => Text("Error loading products: $e"),
+                    ),
+                    const SizedBox(height: 10),
+
+                    // Qty & Discount
+                    Row(
                       children: [
-                        const Text("Available Stock", style: TextStyle(fontSize: 12)),
-                        Text(
-                          "${widget.product.currentStock} Units",
-                          style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                        Expanded(
+                          child: TextFormField(
+                            controller: _qtyController,
+                            keyboardType: TextInputType.number,
+                            decoration: _inputDecor("Qty"),
+                            onChanged: (_) => _calculateLineTotal(),
+                            validator: (v) => (int.tryParse(v ?? '0') ?? 0) <= 0 ? 'Invalid' : null,
+                          ),
+                        ),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: TextFormField(
+                            controller: _discountController,
+                            keyboardType: TextInputType.number,
+                            decoration: _inputDecor("Disc %"),
+                            onChanged: (_) => _calculateLineTotal(),
+                          ),
                         ),
                       ],
                     ),
-                    Column(
-                      crossAxisAlignment: CrossAxisAlignment.end,
+                    const SizedBox(height: 10),
+
+                    // Item Total & Add Button
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
-                        const Text("Market Price", style: TextStyle(fontSize: 12)),
                         Text(
-                          "৳${widget.product.marketPrice.toStringAsFixed(0)}",
-                          style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.blue),
+                            "Total: ৳${_currentLineTotal.toStringAsFixed(0)}",
+                            style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: Theme.of(context).primaryColor)
                         ),
+                        ElevatedButton.icon(
+                          onPressed: _addToCart,
+                          icon: const Icon(Icons.add_shopping_cart, size: 18),
+                          label: const Text("Add"),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: Theme.of(context).primaryColor,
+                            foregroundColor: Colors.white,
+                          ),
+                        )
                       ],
-                    ),
+                    )
                   ],
                 ),
               ),
-              const SizedBox(height: 24),
-
-              // 3. INPUT FIELDS
-              const Text("Customer Info", style: TextStyle(fontWeight: FontWeight.bold)),
-              const SizedBox(height: 12),
-              TextFormField(
-                controller: _customerNameController,
-                textInputAction: TextInputAction.next,
-                decoration: InputDecoration(
-                  labelText: "Customer Name",
-                  prefixIcon: const Icon(Icons.person),
-                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-                ),
-                validator: (v) => v!.isEmpty ? 'Required' : null,
-              ),
-              const SizedBox(height: 16),
-              TextFormField(
-                controller: _customerPhoneController,
-                keyboardType: TextInputType.phone,
-                textInputAction: TextInputAction.next,
-                decoration: InputDecoration(
-                  labelText: "Phone Number",
-                  prefixIcon: const Icon(Icons.phone),
-                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-                ),
-              ),
 
               const SizedBox(height: 24),
-              const Text("Transaction Details", style: TextStyle(fontWeight: FontWeight.bold)),
-              const SizedBox(height: 12),
 
-              Row(
-                children: [
-                  Expanded(
-                    child: TextFormField(
-                      controller: _qtyController,
-                      keyboardType: TextInputType.number,
-                      decoration: InputDecoration(
-                        labelText: "Quantity",
-                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+              // 3. CART LIST
+              _SectionHeader(title: "Cart Items (${_cartItems.length})", icon: Icons.shopping_basket_outlined),
+              const SizedBox(height: 10),
+
+              if (_cartItems.isEmpty)
+                const Center(child: Padding(padding: EdgeInsets.all(20), child: Text("Cart is empty"))),
+
+              ListView.builder(
+                shrinkWrap: true,
+                physics: const NeverScrollableScrollPhysics(),
+                itemCount: _cartItems.length,
+                itemBuilder: (context, index) {
+                  final item = _cartItems[index];
+                  return Card(
+                    margin: const EdgeInsets.only(bottom: 8),
+                    child: ListTile(
+                      dense: true,
+                      leading: CircleAvatar(
+                        radius: 14,
+                        child: Text("${index + 1}", style: const TextStyle(fontSize: 12)),
                       ),
-                      validator: (v) => v!.isEmpty ? 'Required' : null,
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: TextFormField(
-                      controller: _discountController,
-                      keyboardType: TextInputType.number,
-                      decoration: InputDecoration(
-                        labelText: "Discount (%)",
-                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                      title: Text(item.product.model, style: const TextStyle(fontWeight: FontWeight.bold)),
+                      subtitle: Text("${item.quantity} x ৳${item.product.marketPrice} (-${item.discountPercent}%)"),
+                      trailing: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Text("৳${item.finalPrice.toStringAsFixed(0)}", style: const TextStyle(fontWeight: FontWeight.bold)),
+                          IconButton(
+                            icon: const Icon(Icons.delete_outline, color: Colors.red, size: 20),
+                            onPressed: () => setState(() => _cartItems.removeAt(index)),
+                          ),
+                        ],
                       ),
                     ),
-                  ),
-                ],
+                  );
+                },
               ),
-              const SizedBox(height: 16),
+
+              const SizedBox(height: 20),
+
+              // 4. CHECKOUT
               DropdownButtonFormField<String>(
                 value: _paymentStatus,
                 items: ['Cash', 'Due'].map((e) => DropdownMenuItem(value: e, child: Text(e))).toList(),
                 onChanged: (v) => setState(() => _paymentStatus = v!),
-                decoration: InputDecoration(
-                  labelText: "Payment Type",
-                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-                  prefixIcon: const Icon(Icons.payment),
-                ),
+                decoration: _inputDecor("Payment Type", Icons.payment),
               ),
+              const SizedBox(height: 20),
 
-              const SizedBox(height: 32),
-
-              // 4. TOTAL & ACTION
               Container(
-                padding: const EdgeInsets.all(20),
+                padding: const EdgeInsets.all(16),
                 decoration: BoxDecoration(
                   color: isDark ? const Color(0xFF0F172A) : Colors.black,
                   borderRadius: BorderRadius.circular(16),
-                  boxShadow: [
-                    BoxShadow(color: Colors.black.withOpacity(0.2), blurRadius: 10, offset: const Offset(0, 5))
-                  ],
                 ),
                 child: Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    const Text("Net Total:", style: TextStyle(color: Colors.white70, fontSize: 16)),
+                    const Text("Grand Total:", style: TextStyle(color: Colors.white70, fontSize: 16)),
                     Text(
-                      "৳${_finalSellingPrice.toStringAsFixed(0)}",
+                      "৳${cartTotal.toStringAsFixed(0)}",
                       style: const TextStyle(color: Colors.white, fontSize: 24, fontWeight: FontWeight.bold),
                     ),
                   ],
                 ),
               ),
-              const SizedBox(height: 20),
+              const SizedBox(height: 16),
 
               SizedBox(
                 width: double.infinity,
-                height: 56,
+                height: 50,
                 child: ElevatedButton.icon(
-                  onPressed: _isLoading ? null : _processSale,
-                  icon: const Icon(Icons.check_circle_outline),
+                  onPressed: (_isLoading || _cartItems.isEmpty) ? null : _processBatchSale,
+                  icon: const Icon(Icons.check_circle),
                   label: _isLoading
                       ? const CircularProgressIndicator(color: Colors.white)
-                      : const Text("CONFIRM SALE", style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                      : const Text("CONFIRM BATCH SALE"),
                   style: ElevatedButton.styleFrom(
-                    backgroundColor: Theme.of(context).primaryColor,
+                    backgroundColor: Colors.green,
                     foregroundColor: Colors.white,
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                   ),
                 ),
               ),
+              const SizedBox(height: 40),
             ],
           ),
         ),
       ),
     );
   }
+
+  InputDecoration _inputDecor(String label, [IconData? icon]) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    return InputDecoration(
+      labelText: label,
+      prefixIcon: icon != null ? Icon(icon, size: 20) : null,
+      filled: true,
+      fillColor: isDark ? const Color(0xFF1E293B) : Colors.grey[50],
+      border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
+      contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+    );
+  }
 }
 
-class _ModeCard extends StatelessWidget {
-  final String label;
-  final bool isSelected;
-  final VoidCallback onTap;
+class _SectionHeader extends StatelessWidget {
+  final String title;
   final IconData icon;
-
-  const _ModeCard({required this.label, required this.isSelected, required this.onTap, required this.icon});
+  const _SectionHeader({required this.title, required this.icon});
 
   @override
   Widget build(BuildContext context) {
-    final color = isSelected ? Theme.of(context).primaryColor : Colors.grey;
-
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(12),
-      child: Container(
-        padding: const EdgeInsets.symmetric(vertical: 16),
-        decoration: BoxDecoration(
-          color: isSelected ? color.withOpacity(0.1) : Colors.transparent,
-          border: Border.all(color: isSelected ? color : Colors.grey.shade300, width: 2),
-          borderRadius: BorderRadius.circular(12),
-        ),
-        child: Column(
-          children: [
-            Icon(icon, color: color),
-            const SizedBox(height: 4),
-            Text(
-                label,
-                style: TextStyle(fontWeight: FontWeight.bold, color: color)
-            ),
-          ],
-        ),
-      ),
+    return Row(
+      children: [
+        Icon(icon, size: 20, color: Theme.of(context).primaryColor),
+        const SizedBox(width: 8),
+        Text(title, style: TextStyle(color: Theme.of(context).primaryColor, fontWeight: FontWeight.bold, fontSize: 16)),
+      ],
     );
   }
 }

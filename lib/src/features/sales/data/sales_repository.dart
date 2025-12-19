@@ -5,83 +5,138 @@ import '../../inventory/domain/product_model.dart';
 
 final salesRepositoryProvider = Provider((ref) => SalesRepository(FirebaseFirestore.instance, ref));
 
+// Helper class for Batch Sales
+class CartItem {
+  final Product product;
+  final int quantity;
+  final double discountPercent;
+  final double finalPrice;
+
+  CartItem({
+    required this.product,
+    required this.quantity,
+    required this.discountPercent,
+    required this.finalPrice,
+  });
+}
+
 class SalesRepository {
   final FirebaseFirestore _firestore;
   final Ref _ref;
 
   SalesRepository(this._firestore, this._ref);
 
+  // 1. Single Product Sell (Wrapper)
   Future<void> sellProduct({
     required Product product,
     required String customerName,
     required String customerPhone,
     required int quantity,
     required double discountPercent,
-    required String paymentStatus, // 'Cash' or 'Due'
+    required String paymentStatus,
+  }) async {
+    final sellingPriceUnit = product.marketPrice - (product.marketPrice * (discountPercent / 100));
+    final total = sellingPriceUnit * quantity;
+
+    await sellBatchProducts(
+      items: [CartItem(product: product, quantity: quantity, discountPercent: discountPercent, finalPrice: total)],
+      customerName: customerName,
+      customerPhone: customerPhone,
+      paymentStatus: paymentStatus,
+    );
+  }
+
+  // 2. Batch Sell (The New "Same Thing")
+  Future<void> sellBatchProducts({
+    required List<CartItem> items,
+    required String customerName,
+    required String customerPhone,
+    required String paymentStatus,
   }) async {
     final user = _ref.read(authServiceProvider).currentUser;
     if (user == null) throw Exception("User not logged in");
 
-    // 1. Validation (Double Check)
-    if (product.currentStock < quantity) {
-      throw Exception("Insufficient Stock. Only ${product.currentStock} available.");
+    final batch = _firestore.batch();
+    final timestamp = FieldValue.serverTimestamp();
+
+    // A. Create Master Invoice
+    final invoiceRef = _firestore.collection('sales_invoices').doc();
+
+    // Calculate Grand Totals
+    double grandTotalAmount = 0;
+    double grandTotalProfit = 0;
+
+    for (var item in items) {
+      // Validation
+      if (item.product.currentStock < item.quantity) {
+        throw Exception("Insufficient stock for ${item.product.name}");
+      }
+      grandTotalAmount += item.finalPrice;
+
+      final totalBuyingPrice = item.product.buyingPrice * item.quantity;
+      grandTotalProfit += (item.finalPrice - totalBuyingPrice);
     }
 
-    // 2. Financial Calculations
-    final double sellingPriceUnit = product.marketPrice - (product.marketPrice * (discountPercent / 100));
-    final double totalSellingPrice = sellingPriceUnit * quantity;
-    final double totalBuyingPrice = product.buyingPrice * quantity;
-
-    // ⚠️ PROFIT (The Secret Metric)
-    final double totalProfit = totalSellingPrice - totalBuyingPrice;
-
-    // 3. Database Transaction (Atomic)
-    final batch = _firestore.batch();
-
-    // A. Create Sales Record
-    final saleRef = _firestore.collection('sales').doc();
-    batch.set(saleRef, {
-      'type': 'SELL',
-      'productId': product.id,
-      'productName': product.name,
-      'productModel': product.model,
-      'category': product.category,
-
+    batch.set(invoiceRef, {
+      'type': 'INVOICE',
       'customerName': customerName,
       'customerPhone': customerPhone,
-
-      'quantity': quantity,
-      'mrp': product.marketPrice,
-      'discountPercent': discountPercent,
-      'sellingPriceUnit': sellingPriceUnit,
-      'totalAmount': totalSellingPrice,
+      'totalAmount': grandTotalAmount,
+      'totalProfit': grandTotalProfit, // Admin only
+      'itemCount': items.length,
       'paymentStatus': paymentStatus,
-
-      'profit': totalProfit, // Hidden from customer, visible to Admin
-
       'soldBy': user.email,
-      'timestamp': FieldValue.serverTimestamp(),
+      'timestamp': timestamp,
     });
 
-    // B. Decrease Stock
-    final productRef = _firestore.collection('products').doc(product.id);
-    batch.update(productRef, {
-      'currentStock': FieldValue.increment(-quantity),
-      'lastUpdated': FieldValue.serverTimestamp(),
-    });
+    // B. Process Individual Items
+    for (var item in items) {
+      final unitPrice = item.product.marketPrice - (item.product.marketPrice * (item.discountPercent / 100));
+      final totalBuyingPrice = item.product.buyingPrice * item.quantity;
+      final profit = item.finalPrice - totalBuyingPrice;
 
-    // C. Add to Inventory Log (for history consistency)
-    final logRef = _firestore.collection('inventory_logs').doc();
-    batch.set(logRef, {
-      'type': 'SELL',
-      'productId': product.id,
-      'productName': product.name,
-      'quantityRemoved': quantity,
-      'oldStock': product.currentStock,
-      'newStock': product.currentStock - quantity,
-      'soldTo': customerName,
-      'timestamp': FieldValue.serverTimestamp(),
-    });
+      // 1. Create Sale Record
+      final saleRef = _firestore.collection('sales').doc();
+      batch.set(saleRef, {
+        'invoiceId': invoiceRef.id,
+        'productId': item.product.id,
+        'productName': item.product.name,
+        'productModel': item.product.model,
+        'category': item.product.category,
+        'customerName': customerName,
+        'customerPhone': customerPhone,
+        'quantity': item.quantity,
+        'mrp': item.product.marketPrice,
+        'discountPercent': item.discountPercent,
+        'sellingPriceUnit': unitPrice,
+        'totalAmount': item.finalPrice,
+        'profit': profit,
+        'paymentStatus': paymentStatus,
+        'soldBy': user.email,
+        'timestamp': timestamp,
+      });
+
+      // 2. Decrease Stock
+      final productRef = _firestore.collection('products').doc(item.product.id);
+      batch.update(productRef, {
+        'currentStock': FieldValue.increment(-item.quantity),
+        'lastUpdated': timestamp,
+      });
+
+      // 3. Log
+      final logRef = _firestore.collection('inventory_logs').doc();
+      batch.set(logRef, {
+        'type': 'SELL',
+        'invoiceId': invoiceRef.id,
+        'productId': item.product.id,
+        'productName': item.product.name,
+        'quantityRemoved': item.quantity,
+        'oldStock': item.product.currentStock,
+        'newStock': item.product.currentStock - item.quantity,
+        'soldTo': customerName,
+        'timestamp': timestamp,
+      });
+    }
 
     await batch.commit();
   }
