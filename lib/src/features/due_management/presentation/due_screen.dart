@@ -26,8 +26,13 @@ class DueScreen extends ConsumerWidget {
             );
           }
 
-          // Calculate Total Due Amount
-          double totalDue = dues.fold(0, (sum, item) => sum + (item['totalAmount'] ?? 0));
+          // Calculate Total OUTSTANDING (Not just total sales)
+          double totalOutstanding = 0;
+          for (var item in dues) {
+            double total = (item['totalAmount'] ?? 0).toDouble();
+            double paid = (item['paidAmount'] ?? 0).toDouble();
+            totalOutstanding += (total - paid);
+          }
 
           return Column(
             children: [
@@ -40,7 +45,7 @@ class DueScreen extends ConsumerWidget {
                   children: [
                     const Text("Total Outstanding Amount", style: TextStyle(color: Colors.red)),
                     Text(
-                      "৳${totalDue.toStringAsFixed(0)}",
+                      "৳${totalOutstanding.toStringAsFixed(0)}",
                       style: const TextStyle(fontSize: 28, fontWeight: FontWeight.bold, color: Colors.red),
                     ),
                   ],
@@ -51,51 +56,94 @@ class DueScreen extends ConsumerWidget {
               Expanded(
                 child: ListView.builder(
                   itemCount: dues.length,
+                  // ... inside ListView.builder
                   itemBuilder: (context, index) {
                     final sale = dues[index];
+
+                    final double totalAmount = (sale['totalAmount'] ?? 0).toDouble();
+                    final double paidAmount = (sale['paidAmount'] ?? 0).toDouble();
+                    final double remainingDue = totalAmount - paidAmount;
+
                     return Card(
-                      margin: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-                      child: ListTile(
-                        leading: const CircleAvatar(
-                          backgroundColor: Colors.redAccent,
-                          child: Icon(Icons.person, color: Colors.white),
-                        ),
-                        title: Text(sale['customerName'] ?? 'Unknown'),
-                        subtitle: Text("Ph: ${sale['customerPhone'] ?? 'N/A'}\nItem: ${sale['productName']}"),
-                        isThreeLine: true,
-                        trailing: Column(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          crossAxisAlignment: CrossAxisAlignment.end,
-                          mainAxisSize: MainAxisSize.min, // 👈 1. Important: Stop it from expanding
+                      margin: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                      elevation: 3,
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                      child: Padding(
+                        padding: const EdgeInsets.all(12.0),
+                        child: Row(
+                          crossAxisAlignment: CrossAxisAlignment.center, // Vertically center content
                           children: [
-                            Text(
-                              "৳${sale['totalAmount']}",
-                              style: const TextStyle(
-                                  fontSize: 16,
-                                  fontWeight: FontWeight.bold,
-                                  color: Colors.red
+                            // 1. AVATAR
+                            CircleAvatar(
+                              backgroundColor: Colors.red.withOpacity(0.1),
+                              radius: 24,
+                              child: const Icon(Icons.history_edu, color: Colors.red),
+                            ),
+
+                            const SizedBox(width: 12),
+
+                            // 2. CUSTOMER INFO (Expanded to take available width)
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    sale['customerName'] ?? 'Unknown',
+                                    style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                                  ),
+                                  const SizedBox(height: 4),
+                                  Text("Ph: ${sale['customerPhone'] ?? 'N/A'}", style: const TextStyle(fontSize: 12, color: Colors.grey)),
+                                  Text("Item: ${sale['productName']}", style: const TextStyle(fontSize: 12, color: Colors.grey)),
+                                ],
                               ),
                             ),
-                            const SizedBox(height: 2), // 👈 2. Reduced from 5 to 2
-                            InkWell(
-                              onTap: () => _confirmSettle(context, ref, sale['saleId'], sale['customerName'], sale['totalAmount']),
-                              child: Container(
-                                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2), // 👈 3. Reduced vertical padding
-                                decoration: BoxDecoration(
-                                    color: Colors.green,
-                                    borderRadius: BorderRadius.circular(5)
+
+                            // 3. RIGHT SIDE: MONEY & BUTTON
+                            Column(
+                              crossAxisAlignment: CrossAxisAlignment.end,
+                              children: [
+                                // Money Info
+                                Text(
+                                  "Due: ৳${remainingDue.toStringAsFixed(0)}",
+                                  style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.red),
                                 ),
-                                child: const Text(
-                                    "MARK PAID",
-                                    style: TextStyle(color: Colors.white, fontSize: 10)
+                                Text(
+                                  "Total: ৳${totalAmount.toStringAsFixed(0)}",
+                                  style: const TextStyle(fontSize: 12, color: Colors.grey),
                                 ),
-                              ),
-                            )
+                                const SizedBox(height: 8),
+
+                                // "Receive Pay" Button
+                                InkWell(
+                                  onTap: () => _showPaymentDialog(context, ref, sale, remainingDue),
+                                  borderRadius: BorderRadius.circular(8),
+                                  child: Container(
+                                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                                    decoration: BoxDecoration(
+                                      color: Colors.blueAccent,
+                                      borderRadius: BorderRadius.circular(8),
+                                      boxShadow: [
+                                        BoxShadow(color: Colors.blue.withOpacity(0.3), blurRadius: 4, offset: const Offset(0, 2))
+                                      ],
+                                    ),
+                                    child: const Row(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        Icon(Icons.payment, color: Colors.white, size: 14),
+                                        SizedBox(width: 4),
+                                        Text("PAY NOW", style: TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.bold)),
+                                      ],
+                                    ),
+                                  ),
+                                )
+                              ],
+                            ),
                           ],
                         ),
                       ),
                     );
                   },
+// ...
                 ),
               ),
             ],
@@ -107,23 +155,58 @@ class DueScreen extends ConsumerWidget {
     );
   }
 
-  void _confirmSettle(BuildContext context, WidgetRef ref, String saleId, String name, double amount) {
+  void _showPaymentDialog(BuildContext context, WidgetRef ref, Map<String, dynamic> sale, double remainingDue) {
+    final amountController = TextEditingController();
+
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text("Confirm Payment"),
-        content: Text("Did $name pay the full amount of ৳$amount?"),
+        title: Text("Receive Payment from ${sale['customerName']}"),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text("Remaining Due: ৳$remainingDue"),
+            const SizedBox(height: 10),
+            TextField(
+              controller: amountController,
+              keyboardType: TextInputType.number,
+              autofocus: true,
+              decoration: const InputDecoration(
+                labelText: "Enter Amount",
+                border: OutlineInputBorder(),
+                prefixText: "৳ ",
+              ),
+            ),
+          ],
+        ),
         actions: [
           TextButton(onPressed: () => Navigator.pop(ctx), child: const Text("Cancel")),
           ElevatedButton(
             onPressed: () async {
+              final amount = double.tryParse(amountController.text) ?? 0;
+              if (amount <= 0 || amount > remainingDue) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text("Invalid Amount! Cannot be more than due.")),
+                );
+                return;
+              }
+
               Navigator.pop(ctx); // Close dialog
-              await ref.read(dueRepositoryProvider).settleDue(saleId, amount);
+
+              await ref.read(dueRepositoryProvider).receivePayment(
+                saleId: sale['saleId'],
+                currentPaidAmount: (sale['paidAmount'] ?? 0).toDouble(),
+                totalOrderAmount: (sale['totalAmount'] ?? 0).toDouble(),
+                amountPayingNow: amount,
+              );
+
               if (context.mounted) {
-                ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Payment Received!")));
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(content: Text("Received ৳$amount successfully!")),
+                );
               }
             },
-            child: const Text("Yes, Settle It"),
+            child: const Text("Confirm Payment"),
           )
         ],
       ),
