@@ -16,15 +16,28 @@ class _ReceiveProductScreenState extends ConsumerState<ReceiveProductScreen> {
   // Controllers
   final _nameController = TextEditingController();
   final _modelController = TextEditingController();
-  final _categoryController = TextEditingController();
+  // final _categoryController = TextEditingController(); // Removed in favor of Dropdown
   final _capacityController = TextEditingController();
   final _qtyController = TextEditingController();
   final _mrpController = TextEditingController();
   final _commissionController = TextEditingController();
 
-  // Calculated Field
+  // State Variables
+  String? _selectedCategory; // Stores the selected dropdown value
   double _calculatedBuyingPrice = 0.0;
   bool _isLoading = false;
+
+  // Define your fixed categories here
+  final List<String> _categoryOptions = [
+    'TV',
+    'Refrigerator',
+    'AC',
+    'Oven',
+    'Electric Cooker',
+    'Washing Machine',
+    'Fan',
+    'Other'
+  ];
 
   @override
   void initState() {
@@ -51,7 +64,7 @@ class _ReceiveProductScreenState extends ConsumerState<ReceiveProductScreen> {
       await ref.read(inventoryRepositoryProvider).receiveProduct(
         name: _nameController.text.trim(),
         model: _modelController.text.trim(),
-        category: _categoryController.text.trim(),
+        category: _selectedCategory!, // Use the dropdown value
         capacity: _capacityController.text.trim(),
         quantity: int.parse(_qtyController.text.trim()),
         mrp: double.parse(_mrpController.text.trim()),
@@ -62,7 +75,7 @@ class _ReceiveProductScreenState extends ConsumerState<ReceiveProductScreen> {
       final pdfData = {
         'name': _nameController.text.trim(),
         'model': _modelController.text.trim(),
-        'category': _categoryController.text.trim(),
+        'category': _selectedCategory!,
         'qty': int.parse(_qtyController.text.trim()),
         'mrp': double.parse(_mrpController.text.trim()),
         'buyPrice': _calculatedBuyingPrice,
@@ -146,6 +159,7 @@ class _ReceiveProductScreenState extends ConsumerState<ReceiveProductScreen> {
               const SizedBox(height: 16),
 
               Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Expanded(
                     flex: 2,
@@ -158,12 +172,17 @@ class _ReceiveProductScreenState extends ConsumerState<ReceiveProductScreen> {
                   ),
                   const SizedBox(width: 12),
                   Expanded(
-                    flex: 1,
-                    child: TextFormField(
-                      controller: _categoryController,
-                      textInputAction: TextInputAction.next,
-                      decoration: _inputDecor(label: 'Category', hint: 'TV'),
-                      validator: (v) => v!.isEmpty ? 'Required' : null,
+                    flex: 2,
+                    // 👇 CHANGED: Dropdown for Category
+                    child: DropdownButtonFormField<String>(
+                      value: _selectedCategory,
+                      items: _categoryOptions.map((String category) {
+                        return DropdownMenuItem(value: category, child: Text(category, style: const TextStyle(fontSize: 14)));
+                      }).toList(),
+                      onChanged: (newValue) => setState(() => _selectedCategory = newValue),
+                      decoration: _inputDecor(label: 'Category'),
+                      validator: (v) => v == null ? 'Required' : null,
+                      dropdownColor: isDark ? const Color(0xFF1E293B) : Colors.white,
                     ),
                   ),
                 ],
