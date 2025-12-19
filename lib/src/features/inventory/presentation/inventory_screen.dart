@@ -15,6 +15,21 @@ class _InventoryScreenState extends ConsumerState<InventoryScreen> {
   final _searchController = TextEditingController();
   String _searchQuery = "";
 
+  // Filter State
+  String _selectedCategory = "All";
+
+  // Define your main categories here (matches what you type in Receive Product)
+  final List<String> _categories = [
+    "All",
+    "Low Stock", // Special Filter
+    "TV",
+    "Refrigerator",
+    "AC",
+    "Fan",
+    "Washing Machine",
+    "Other"
+  ];
+
   @override
   void initState() {
     super.initState();
@@ -27,41 +42,106 @@ class _InventoryScreenState extends ConsumerState<InventoryScreen> {
 
   @override
   Widget build(BuildContext context) {
-    // 1. Listen to the stream
     final inventoryAsyncValue = ref.watch(inventoryStreamProvider);
 
     return Scaffold(
       appBar: AppBar(title: const Text('Current Inventory')),
       body: Column(
         children: [
-          // SEARCH BAR
+          // 1. SEARCH BAR
           Padding(
-            padding: const EdgeInsets.all(16.0),
+            padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
             child: TextField(
               controller: _searchController,
               decoration: const InputDecoration(
                 labelText: 'Search by Name or Model',
                 prefixIcon: Icon(Icons.search),
                 border: OutlineInputBorder(),
+                contentPadding: EdgeInsets.symmetric(horizontal: 16, vertical: 0),
               ),
             ),
           ),
 
-          // PRODUCT LIST
+          // 2. FILTER CHIPS
+          SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            child: Row(
+              children: _categories.map((category) {
+                final isSelected = _selectedCategory == category;
+                // Special styling for "Low Stock" to make it urgent
+                final isLowStockChip = category == "Low Stock";
+
+                return Padding(
+                  padding: const EdgeInsets.only(right: 8.0),
+                  child: ChoiceChip(
+                    label: Text(category),
+                    selected: isSelected,
+                    selectedColor: isLowStockChip ? Colors.red.shade100 : Colors.blue.shade100,
+                    labelStyle: TextStyle(
+                      color: isSelected
+                          ? (isLowStockChip ? Colors.red : Colors.blue.shade900)
+                          : Colors.black,
+                      fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+                    ),
+                    onSelected: (bool selected) {
+                      if (selected) {
+                        setState(() {
+                          _selectedCategory = category;
+                        });
+                      }
+                    },
+                  ),
+                );
+              }).toList(),
+            ),
+          ),
+
+          const Divider(height: 20),
+
+          // 3. PRODUCT LIST
           Expanded(
             child: inventoryAsyncValue.when(
               data: (products) {
-                // Client-side filtering
+                // FILTERING LOGIC
                 final filteredProducts = products.where((p) {
-                  return p.name.toLowerCase().contains(_searchQuery) ||
+                  // A. Search Query Check
+                  final matchesSearch = p.name.toLowerCase().contains(_searchQuery) ||
                       p.model.toLowerCase().contains(_searchQuery);
+
+                  if (!matchesSearch) return false;
+
+                  // B. Category / Low Stock Check
+                  if (_selectedCategory == "All") {
+                    return true;
+                  } else if (_selectedCategory == "Low Stock") {
+                    return p.currentStock < 5; // Low Stock Threshold
+                  } else {
+                    // Category Matching (Case insensitive partial match)
+                    return p.category.toLowerCase().contains(_selectedCategory.toLowerCase());
+                  }
                 }).toList();
 
                 if (filteredProducts.isEmpty) {
-                  return const Center(child: Text("No products found."));
+                  return Center(
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(Icons.inventory_2_outlined, size: 60, color: Colors.grey.shade300),
+                        const SizedBox(height: 10),
+                        Text(
+                          _selectedCategory == "Low Stock"
+                              ? "No items are running low!"
+                              : "No products found.",
+                          style: const TextStyle(color: Colors.grey),
+                        ),
+                      ],
+                    ),
+                  );
                 }
 
                 return ListView.builder(
+                  padding: const EdgeInsets.only(bottom: 80), // Space for FAB if needed
                   itemCount: filteredProducts.length,
                   itemBuilder: (context, index) {
                     final product = filteredProducts[index];
@@ -92,10 +172,12 @@ class _ProductCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Card(
-      margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+      elevation: 2,
       child: ListTile(
+        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
         leading: CircleAvatar(
-          backgroundColor: _getStockColor(product.currentStock).withOpacity(0.2),
+          backgroundColor: _getStockColor(product.currentStock).withOpacity(0.1),
           child: Text(
             product.currentStock.toString(),
             style: TextStyle(
@@ -111,18 +193,29 @@ class _ProductCard extends StatelessWidget {
         subtitle: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(product.name),
-            Text(
-              "MRP: ${product.marketPrice.toStringAsFixed(0)}",
-              style: const TextStyle(color: Colors.grey),
+            Text(product.name, maxLines: 1, overflow: TextOverflow.ellipsis),
+            const SizedBox(height: 4),
+            Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                  decoration: BoxDecoration(
+                      color: Colors.grey.shade200,
+                      borderRadius: BorderRadius.circular(4)
+                  ),
+                  child: Text(product.category, style: const TextStyle(fontSize: 10, color: Colors.grey)),
+                ),
+                const SizedBox(width: 8),
+                Text(
+                  "MRP: ৳${product.marketPrice.toStringAsFixed(0)}",
+                  style: const TextStyle(color: Colors.green, fontWeight: FontWeight.bold, fontSize: 12),
+                ),
+              ],
             ),
           ],
         ),
-        trailing: const Icon(Icons.arrow_forward_ios, size: 16),
+        trailing: const Icon(Icons.arrow_forward_ios, size: 14, color: Colors.grey),
         onTap: () {
-          // Future: Open Product Detail / Edit Page
-          // NAVIGATE TO SELL SCREEN
-          // Note: We need to import the file first
           Navigator.push(
             context,
             MaterialPageRoute(
