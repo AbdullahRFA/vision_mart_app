@@ -10,6 +10,20 @@ import 'src/features/inventory/presentation/inventory_screen.dart';
 import 'src/features/analytics/presentation/analytics_screen.dart';
 import 'src/features/due_management/presentation/due_screen.dart';
 
+// 👇 1. FIXED: Use Notifier instead of StateProvider (Riverpod 3.0 compat)
+class ThemeModeNotifier extends Notifier<ThemeMode> {
+  @override
+  ThemeMode build() {
+    return ThemeMode.system; // Default start state
+  }
+
+  void toggle() {
+    state = state == ThemeMode.dark ? ThemeMode.light : ThemeMode.dark;
+  }
+}
+
+final themeModeProvider = NotifierProvider<ThemeModeNotifier, ThemeMode>(ThemeModeNotifier.new);
+
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await Firebase.initializeApp(
@@ -24,6 +38,8 @@ class VisionMartApp extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final authState = ref.watch(authStateProvider);
+    // 👇 2. WATCH THE THEME PROVIDER
+    final themeMode = ref.watch(themeModeProvider);
 
     // --- DESIGN SYSTEM CONSTANTS ---
     const primarySeed = Color(0xFF2563EB); // Royal Blue
@@ -31,6 +47,9 @@ class VisionMartApp extends ConsumerWidget {
     return MaterialApp(
       title: 'A & R Vision Mart',
       debugShowCheckedModeBanner: false,
+
+      // 👇 3. USE THE WATCHED THEME MODE
+      themeMode: themeMode,
 
       // LIGHT THEME
       theme: ThemeData(
@@ -54,7 +73,6 @@ class VisionMartApp extends ConsumerWidget {
             padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 24),
           ),
         ),
-        // FIXED: Used CardThemeData instead of CardTheme
         cardTheme: const CardThemeData(
           color: Colors.white,
           elevation: 2,
@@ -80,14 +98,12 @@ class VisionMartApp extends ConsumerWidget {
           surfaceTintColor: Colors.transparent,
           titleTextStyle: TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.bold),
         ),
-        // FIXED: Used CardThemeData instead of CardTheme
         cardTheme: const CardThemeData(
           color: Color(0xFF1E293B), // Slate 800
           elevation: 4,
           margin: EdgeInsets.symmetric(vertical: 8, horizontal: 16),
         ),
       ),
-      themeMode: ThemeMode.system,
 
       home: authState.when(
         data: (user) => user != null ? const DashboardScreen() : const AuthScreen(),
@@ -104,12 +120,25 @@ class DashboardScreen extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final user = ref.read(authServiceProvider).currentUser;
+    // Helper to check current effective brightness
     final isDark = Theme.of(context).brightness == Brightness.dark;
 
     return Scaffold(
       appBar: AppBar(
         title: const Text('Dashboard'),
         actions: [
+          // 👇 4. FIXED: TOGGLE BUTTON USES NOTIFIER METHOD
+          IconButton(
+            tooltip: isDark ? "Switch to Light Mode" : "Switch to Dark Mode",
+            icon: Icon(
+              isDark ? Icons.light_mode_rounded : Icons.dark_mode_rounded,
+              color: isDark ? Colors.yellow : Colors.grey[800],
+            ),
+            onPressed: () {
+              // Call the toggle method on the notifier
+              ref.read(themeModeProvider.notifier).toggle();
+            },
+          ),
           IconButton(
             icon: const Icon(Icons.logout_rounded),
             onPressed: () => ref.read(authServiceProvider).signOut(),
