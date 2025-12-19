@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../inventory/domain/product_model.dart';
 import '../data/sales_repository.dart';
-import 'pdf_generator.dart'; // 👈 IMPORT THIS
+import 'pdf_generator.dart';
 
 class SellProductScreen extends ConsumerStatefulWidget {
   final Product product;
@@ -25,6 +25,10 @@ class _SellProductScreenState extends ConsumerState<SellProductScreen> {
   double _finalSellingPrice = 0.0;
   bool _isLoading = false;
 
+  // 1. New State for Sale Type
+  bool _isWholesale = false;
+  static const double _wholesaleDiscountPercent = 8.0; // Define your standard rate
+
   @override
   void initState() {
     super.initState();
@@ -45,12 +49,26 @@ class _SellProductScreenState extends ConsumerState<SellProductScreen> {
     }
   }
 
+  // 2. Toggle Logic
+  void _toggleSaleType(bool value) {
+    setState(() {
+      _isWholesale = value;
+      // Auto-apply discount based on mode
+      if (_isWholesale) {
+        _discountController.text = _wholesaleDiscountPercent.toStringAsFixed(0);
+      } else {
+        _discountController.text = '0';
+      }
+    });
+    // Trigger calculation update
+    _calculateTotal();
+  }
+
   Future<void> _processSale() async {
     if (!_formKey.currentState!.validate()) return;
 
     final qty = int.parse(_qtyController.text);
 
-    // Check Stock
     if (qty > widget.product.currentStock) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('Error: Not enough stock! Max is ${widget.product.currentStock}'), backgroundColor: Colors.red),
@@ -61,7 +79,6 @@ class _SellProductScreenState extends ConsumerState<SellProductScreen> {
     setState(() => _isLoading = true);
 
     try {
-      // 1. Perform the Sale Logic (Database Update)
       await ref.read(salesRepositoryProvider).sellProduct(
         product: widget.product,
         customerName: _customerNameController.text.trim(),
@@ -71,25 +88,23 @@ class _SellProductScreenState extends ConsumerState<SellProductScreen> {
         paymentStatus: _paymentStatus,
       );
 
-      // 2. Capture values for the PDF before we clear/close anything
       final name = _customerNameController.text.trim();
       final phone = _customerPhoneController.text.trim();
       final discount = double.parse(_discountController.text.trim());
       final finalPrice = _finalSellingPrice;
 
       if (mounted) {
-        // 3. Show Success & Ask to Print
         showDialog(
           context: context,
-          barrierDismissible: false, // Force user to choose
+          barrierDismissible: false,
           builder: (ctx) => AlertDialog(
             title: const Text("Sale Successful!"),
             content: const Text("Inventory updated. Do you want to print the Invoice?"),
             actions: [
               TextButton(
                 onPressed: () {
-                  Navigator.pop(ctx); // Close Dialog
-                  Navigator.pop(context); // Close Sell Screen
+                  Navigator.pop(ctx);
+                  Navigator.pop(context);
                 },
                 child: const Text("No, Close"),
               ),
@@ -97,9 +112,8 @@ class _SellProductScreenState extends ConsumerState<SellProductScreen> {
                 icon: const Icon(Icons.print),
                 label: const Text("Print / Share"),
                 onPressed: () {
-                  Navigator.pop(ctx); // Close Dialog
+                  Navigator.pop(ctx);
 
-                  // 4. Generate PDF
                   PdfGenerator.generateInvoice(
                     customerName: name,
                     customerPhone: phone,
@@ -112,7 +126,6 @@ class _SellProductScreenState extends ConsumerState<SellProductScreen> {
                     paymentStatus: _paymentStatus,
                   );
 
-                  // After printing/sharing, close the Sell Screen
                   Navigator.pop(context);
                 },
               )
@@ -142,9 +155,34 @@ class _SellProductScreenState extends ConsumerState<SellProductScreen> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
+              // 3. WHOLESALE TOGGLE SWITCH
+              Container(
+                decoration: BoxDecoration(
+                  color: _isWholesale ? Colors.orange.shade50 : Colors.blue.shade50,
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: _isWholesale ? Colors.orange : Colors.blue, width: 1.5),
+                ),
+                child: SwitchListTile(
+                  title: Text(
+                    _isWholesale ? "Wholesale Mode (Business)" : "Retail Mode (Customer)",
+                    style: TextStyle(
+                      fontWeight: FontWeight.bold,
+                      color: _isWholesale ? Colors.deepOrange : Colors.blue.shade900,
+                    ),
+                  ),
+                  subtitle: Text(_isWholesale
+                      ? "Auto-applying $_wholesaleDiscountPercent% discount"
+                      : "Standard MRP pricing"),
+                  value: _isWholesale,
+                  activeColor: Colors.deepOrange,
+                  onChanged: _toggleSaleType,
+                ),
+              ),
+              const SizedBox(height: 16),
+
               // PRODUCT SUMMARY CARD
               Card(
-                color: Colors.blue.withOpacity(0.1),
+                elevation: 2,
                 child: Padding(
                   padding: const EdgeInsets.all(12.0),
                   child: Row(
@@ -211,6 +249,7 @@ class _SellProductScreenState extends ConsumerState<SellProductScreen> {
                   Expanded(
                     child: TextFormField(
                       controller: _discountController,
+                      // Allow editing even in wholesale mode, but it auto-fills initially
                       decoration: const InputDecoration(labelText: "Discount (%)"),
                       keyboardType: TextInputType.number,
                     ),
