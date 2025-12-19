@@ -2,11 +2,11 @@ import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:printing/printing.dart';
 import 'package:intl/intl.dart';
-import '../domain/product_model.dart'; // Ensure you import your Product model
+import '../domain/product_model.dart';
 
 class ReceivingPdfGenerator {
 
-  // Existing single item generator (Keep this if you still use single receive)
+  // Existing single item generator (unchanged)
   static Future<void> generateReceivingMemo({
     required String productName,
     required String model,
@@ -64,7 +64,7 @@ class ReceivingPdfGenerator {
     );
   }
 
-  // 👇 NEW: Batch Generator (For lists of products)
+  // 👇 UPDATED: Batch Generator with MRP & Commission columns
   static Future<void> generateBatchReceivingMemo({
     required List<Product> products,
     required String receivedBy,
@@ -76,7 +76,6 @@ class ReceivingPdfGenerator {
     int totalQty = 0;
     double totalValue = 0;
     for (var p in products) {
-      // In receive flow, currentStock holds the quantity being added
       totalQty += p.currentStock;
       totalValue += (p.buyingPrice * p.currentStock);
     }
@@ -104,18 +103,24 @@ class ReceivingPdfGenerator {
             pw.Table.fromTextArray(
               context: context,
               border: pw.TableBorder.all(),
-              headerStyle: pw.TextStyle(fontWeight: pw.FontWeight.bold, color: PdfColors.white, fontSize: 10),
+              headerStyle: pw.TextStyle(fontWeight: pw.FontWeight.bold, color: PdfColors.white, fontSize: 9),
               headerDecoration: const pw.BoxDecoration(color: PdfColors.black),
-              cellStyle: const pw.TextStyle(fontSize: 10),
+              cellStyle: const pw.TextStyle(fontSize: 9),
+              cellAlignment: pw.Alignment.center,
+              // Adjusted widths to fit new columns
               columnWidths: {
-                0: const pw.FixedColumnWidth(30), // SL
-                1: const pw.FlexColumnWidth(2),   // Category
-                2: const pw.FlexColumnWidth(3),   // Model/Name
-                3: const pw.FixedColumnWidth(40), // Qty
-                4: const pw.FixedColumnWidth(60), // Unit Cost
-                5: const pw.FixedColumnWidth(70), // Total
+                0: const pw.FixedColumnWidth(25), // SL
+                1: const pw.FlexColumnWidth(1.5), // Category
+                2: const pw.FlexColumnWidth(2.5), // Model/Name
+                3: const pw.FixedColumnWidth(30), // Qty
+                4: const pw.FixedColumnWidth(40), // MRP
+                5: const pw.FixedColumnWidth(35), // Comm %
+                6: const pw.FixedColumnWidth(45), // Unit Cost
+                7: const pw.FixedColumnWidth(55), // Total
               },
-              headers: ['SL', 'Category', 'Model / Name', 'Qty', 'Unit Cost', 'Total'],
+              // Updated Headers
+              headers: ['SL', 'Category', 'Model / Name', 'Qty', 'MRP', 'Comm %', 'Unit Cost', 'Total'],
+              // Updated Data Mapping
               data: List<List<dynamic>>.generate(products.length, (index) {
                 final p = products[index];
                 final lineTotal = p.buyingPrice * p.currentStock;
@@ -124,8 +129,10 @@ class ReceivingPdfGenerator {
                   p.category,
                   '${p.model}\n${p.name}',
                   '${p.currentStock}',
-                  p.buyingPrice.toStringAsFixed(0),
-                  lineTotal.toStringAsFixed(0),
+                  p.marketPrice.toStringAsFixed(0),        // MRP
+                  '${p.commissionPercent.toStringAsFixed(0)}%', // Commission
+                  p.buyingPrice.toStringAsFixed(0),        // Unit Price (Buying Price)
+                  lineTotal.toStringAsFixed(0),            // Total
                 ];
               }),
             ),
