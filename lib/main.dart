@@ -2,14 +2,19 @@ import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:intl/intl.dart';
 import 'firebase_options.dart';
 import 'src/features/authentication/data/auth_repository.dart';
 import 'src/features/authentication/presentation/auth_screen.dart';
 import 'src/features/inventory/presentation/receive_product_screen.dart';
-import 'src/features/inventory/presentation/inventory_screen.dart'; // 👈 Important Import
+import 'src/features/inventory/presentation/inventory_screen.dart';
 import 'src/features/analytics/presentation/analytics_screen.dart';
+import 'src/features/analytics/data/analytics_repository.dart';
 import 'src/features/due_management/presentation/due_screen.dart';
 import 'src/features/expenses/presentation/expense_screen.dart';
+
+// ... [ThemeModeNotifier, themeModeProvider, main, and VisionMartApp remain unchanged] ...
+
 class ThemeModeNotifier extends Notifier<ThemeMode> {
   @override
   ThemeMode build() {
@@ -57,18 +62,6 @@ class VisionMartApp extends ConsumerWidget {
           titleTextStyle: TextStyle(color: Colors.black87, fontSize: 20, fontWeight: FontWeight.bold),
           iconTheme: IconThemeData(color: Colors.black87),
         ),
-        elevatedButtonTheme: ElevatedButtonThemeData(
-          style: ElevatedButton.styleFrom(
-            elevation: 2,
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-            padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 24),
-          ),
-        ),
-        cardTheme: const CardThemeData(
-          color: Colors.white,
-          elevation: 2,
-          margin: EdgeInsets.symmetric(vertical: 8, horizontal: 16),
-        ),
       ),
       darkTheme: ThemeData(
         useMaterial3: true,
@@ -87,11 +80,6 @@ class VisionMartApp extends ConsumerWidget {
           surfaceTintColor: Colors.transparent,
           titleTextStyle: TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.bold),
         ),
-        cardTheme: const CardThemeData(
-          color: Color(0xFF1E293B),
-          elevation: 4,
-          margin: EdgeInsets.symmetric(vertical: 8, horizontal: 16),
-        ),
       ),
       home: authState.when(
         data: (user) => user != null ? const DashboardScreen() : const AuthScreen(),
@@ -102,13 +90,77 @@ class VisionMartApp extends ConsumerWidget {
   }
 }
 
-class DashboardScreen extends ConsumerWidget {
+class DashboardScreen extends ConsumerStatefulWidget {
   const DashboardScreen({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<DashboardScreen> createState() => _DashboardScreenState();
+}
+
+class _DashboardScreenState extends ConsumerState<DashboardScreen> {
+  String _selectedFilter = 'This Month';
+  DateTimeRange? _customRange;
+
+  final List<String> _filterOptions = [
+    'Today', 'This Week', 'This Month', 'This Year', 'All Time', 'Custom'
+  ];
+
+  DateTimeRange _getDateRange() {
+    final now = DateTime.now();
+    DateTime start, end;
+
+    switch (_selectedFilter) {
+      case 'Today':
+        start = DateTime(now.year, now.month, now.day);
+        end = DateTime(now.year, now.month, now.day, 23, 59, 59);
+        break;
+      case 'This Week':
+        start = now.subtract(Duration(days: now.weekday % 7));
+        start = DateTime(start.year, start.month, start.day);
+        end = DateTime(now.year, now.month, now.day, 23, 59, 59);
+        break;
+      case 'This Month':
+        start = DateTime(now.year, now.month, 1);
+        end = DateTime(now.year, now.month + 1, 0, 23, 59, 59);
+        break;
+      case 'This Year':
+        start = DateTime(now.year, 1, 1);
+        end = DateTime(now.year, 12, 31, 23, 59, 59);
+        break;
+      case 'All Time':
+        start = DateTime(2020);
+        end = DateTime.now();
+        break;
+      case 'Custom':
+        return _customRange ?? DateTimeRange(start: now, end: now);
+      default:
+        start = DateTime(now.year, now.month, 1);
+        end = DateTime.now();
+    }
+    return DateTimeRange(start: start, end: end);
+  }
+
+  Future<void> _pickCustomDateRange() async {
+    final picked = await showDateRangePicker(
+      context: context,
+      firstDate: DateTime(2020),
+      lastDate: DateTime.now(),
+      currentDate: DateTime.now(),
+    );
+    if (picked != null) {
+      setState(() {
+        _customRange = picked;
+        _selectedFilter = 'Custom';
+      });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
     final user = ref.read(authServiceProvider).currentUser;
     final isDark = Theme.of(context).brightness == Brightness.dark;
+    final range = _getDateRange();
+    final salesStream = ref.watch(analyticsRepositoryProvider).getSalesForRange(range.start, range.end);
 
     return Scaffold(
       appBar: AppBar(
@@ -136,6 +188,7 @@ class DashboardScreen extends ConsumerWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
+            // --- WELCOME HEADER ---
             Container(
               padding: const EdgeInsets.all(20),
               decoration: BoxDecoration(
@@ -175,7 +228,136 @@ class DashboardScreen extends ConsumerWidget {
                 ],
               ),
             ),
+
+            const SizedBox(height: 24),
+
+            // --- BUSINESS OVERVIEW SECTION ---
+            // Locate this section inside your DashboardScreen > build > Column
+// under "// --- BUSINESS OVERVIEW SECTION ---"
+
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                const Text("Business Overview", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+
+                // Filter Dropdown
+                PopupMenuButton<String>(
+                  initialValue: _selectedFilter,
+                  onSelected: (value) {
+                    if (value == 'Custom') {
+                      _pickCustomDateRange();
+                    } else {
+                      setState(() => _selectedFilter = value);
+                    }
+                  },
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                    decoration: BoxDecoration(
+                      color: isDark ? const Color(0xFF1E293B) : Colors.white,
+                      borderRadius: BorderRadius.circular(20),
+                      border: Border.all(color: Colors.grey.withOpacity(0.3)),
+                    ),
+                    child: Row(
+                      children: [
+                        Text(
+                          _selectedFilter,
+                          style: TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.bold,
+                            // Changed to Yellow as requested
+                            // Note: Yellow is hard to read on White (Light Mode), so we typically keep it dark in light mode.
+                            // If you want yellow ALWAYS, just use 'Colors.yellow'.
+                            // Below logic: Yellow in Dark Mode, Dark Blue in Light Mode.
+                            color: isDark ? Colors.yellow : Theme.of(context).primaryColor,
+                          ),
+                        ),
+                        const SizedBox(width: 4),
+                        Icon(
+                          Icons.arrow_drop_down,
+                          size: 18,
+                          // Icon matches the text color
+                          color: isDark ? Colors.yellow : Theme.of(context).primaryColor,
+                        ),
+                      ],
+                    ),
+                  ),
+                  itemBuilder: (context) => _filterOptions.map((filter) => PopupMenuItem(
+                    value: filter,
+                    child: Text(filter),
+                  )).toList(),
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+
+            // --- METRIC CARDS ---
+            StreamBuilder<List<Map<String, dynamic>>>(
+              stream: salesStream,
+              builder: (context, snapshot) {
+                double totalRevenue = 0;
+                double totalProfit = 0;
+
+                if (snapshot.hasData) {
+                  for (var sale in snapshot.data!) {
+                    totalRevenue += (sale['totalAmount'] ?? 0).toDouble();
+                    totalProfit += (sale['profit'] ?? 0).toDouble();
+                  }
+                }
+
+                final totalInvestment = totalRevenue - totalProfit;
+                final bool isProfitNegative = totalProfit < 0;
+
+                if (snapshot.connectionState == ConnectionState.waiting) {
+                  return const Center(child: LinearProgressIndicator());
+                }
+
+                return Column(
+                  children: [
+                    // Row 1: Investment & Revenue
+                    Row(
+                      children: [
+                        Expanded(
+                          child: _StatCard(
+                            title: "Investment",
+                            subtitle: "(COGS)",
+                            value: "৳${totalInvestment.toStringAsFixed(0)}",
+                            icon: Icons.inventory_2_outlined,
+                            color: Colors.purple,
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: _StatCard(
+                            title: "Revenue",
+                            subtitle: "(Sales)",
+                            value: "৳${totalRevenue.toStringAsFixed(0)}",
+                            icon: Icons.attach_money,
+                            color: Colors.blue,
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 12),
+
+                    // Row 2: Profit (Full Width) with Conditional Background
+                    _StatCard(
+                      title: "Net Profit",
+                      subtitle: "(Earnings)",
+                      value: "৳${totalProfit.toStringAsFixed(0)}",
+                      icon: isProfitNegative ? Icons.trending_down : Icons.trending_up,
+                      // Pass Red/Green background color logic here
+                      backgroundColor: isProfitNegative ? Colors.red.shade700 : Colors.green.shade700,
+                      color: Colors.white, // This is ignored if backgroundColor is set, but kept for safety
+                      isFullWidth: true,
+                    ),
+                  ],
+                );
+              },
+            ),
+
             const SizedBox(height: 30),
+
+            // --- QUICK ACTIONS ---
             const Text("Quick Actions", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
             const SizedBox(height: 16),
             GridView.count(
@@ -190,35 +372,32 @@ class DashboardScreen extends ConsumerWidget {
                   title: "Receive Stock",
                   icon: Icons.add_box_rounded,
                   color: Colors.blue,
-                  onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => ReceiveProductScreen())),
+                  onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const ReceiveProductScreen())),
                 ),
                 _DashboardCard(
                   title: "Inventory",
                   icon: Icons.inventory_2_rounded,
                   color: Colors.purple,
-                  // 👇 NO CONST HERE
-                  onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => InventoryScreen())),
+                  onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const InventoryScreen())),
                 ),
                 _DashboardCard(
                   title: "Sales Report",
                   icon: Icons.bar_chart_rounded,
                   color: Colors.orange,
-                  onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => AnalyticsScreen())),
+                  onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const AnalyticsScreen())),
                 ),
                 _DashboardCard(
                   title: "Due List",
                   icon: Icons.account_balance_wallet_rounded,
                   color: Colors.red,
-                  onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => DueScreen())),
+                  onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const DueScreen())),
                 ),
-                // ... inside GridView.count children:
                 _DashboardCard(
                   title: "Expenses",
                   icon: Icons.money_off_csred_rounded,
                   color: Colors.redAccent,
                   onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const ExpenseScreen())),
                 ),
-// ...
               ],
             ),
           ],
@@ -228,6 +407,95 @@ class DashboardScreen extends ConsumerWidget {
   }
 }
 
+// Updated Statistic Card Widget
+class _StatCard extends StatelessWidget {
+  final String title;
+  final String subtitle;
+  final String value;
+  final IconData icon;
+  final Color color;
+  final bool isFullWidth;
+  final Color? backgroundColor; // Added to support solid background
+
+  const _StatCard({
+    required this.title,
+    required this.subtitle,
+    required this.value,
+    required this.icon,
+    required this.color,
+    this.isFullWidth = false,
+    this.backgroundColor,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+
+    // Logic: If backgroundColor is provided (Profit card), use it.
+    // Otherwise use default Theme colors.
+    final finalBgColor = backgroundColor ?? (isDark ? const Color(0xFF1E293B) : Colors.white);
+
+    // Logic: If we have a custom background (Red/Green), text MUST be White for contrast.
+    // If standard card, use standard colors (White/Grey for Dark Mode, Black/Grey for Light Mode).
+    final hasCustomBg = backgroundColor != null;
+    final mainTextColor = hasCustomBg ? Colors.white : (isDark ? Colors.white : Colors.black87);
+    final subTextColor = hasCustomBg ? Colors.white70 : (isDark ? Colors.white70 : Colors.grey[600]);
+    final iconTintColor = hasCustomBg ? Colors.white : color;
+
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: finalBgColor,
+        borderRadius: BorderRadius.circular(16),
+        border: hasCustomBg ? null : Border.all(color: color.withOpacity(0.2)),
+        boxShadow: [
+          BoxShadow(
+            color: hasCustomBg ? backgroundColor!.withOpacity(0.3) : color.withOpacity(0.05),
+            blurRadius: 10,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: hasCustomBg ? Colors.white.withOpacity(0.2) : color.withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Icon(icon, size: 20, color: iconTintColor),
+              ),
+              if (isFullWidth)
+                Text(
+                  subtitle,
+                  style: TextStyle(fontSize: 12, color: subTextColor),
+                )
+            ],
+          ),
+          const SizedBox(height: 12),
+          Text(title, style: TextStyle(fontSize: 12, color: subTextColor, fontWeight: FontWeight.bold)),
+          if (!isFullWidth)
+            Text(subtitle, style: TextStyle(fontSize: 10, color: subTextColor)),
+          const SizedBox(height: 4),
+          Text(
+            value,
+            style: TextStyle(
+              fontSize: 20,
+              fontWeight: FontWeight.bold,
+              color: mainTextColor,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+// _DashboardCard remains unchanged
 class _DashboardCard extends StatelessWidget {
   final String title;
   final IconData icon;
