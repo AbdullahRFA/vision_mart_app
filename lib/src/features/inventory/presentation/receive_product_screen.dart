@@ -1,446 +1,446 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:intl/intl.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
-import '../data/analytics_repository.dart';
+import '../data/inventory_repository.dart';
+import '../domain/product_model.dart';
+import 'receiving_pdf_generator.dart';
 
-class AnalyticsScreen extends ConsumerWidget {
-  const AnalyticsScreen({super.key});
+class ReceiveProductScreen extends ConsumerStatefulWidget {
+  const ReceiveProductScreen({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final salesAsync = ref.watch(salesReportProvider);
-    final currentRange = ref.watch(dateRangeProvider);
+  ConsumerState<ReceiveProductScreen> createState() => _ReceiveProductScreenState();
+}
+
+class _ReceiveProductScreenState extends ConsumerState<ReceiveProductScreen> {
+  final _formKey = GlobalKey<FormState>();
+
+  // Controllers
+  final _nameController = TextEditingController();
+  final _modelController = TextEditingController();
+  final _capacityController = TextEditingController();
+  final _qtyController = TextEditingController();
+  final _mrpController = TextEditingController();
+  final _commissionController = TextEditingController();
+
+  // State
+  String? _selectedCategory;
+  double _calculatedBuyingPrice = 0.0;
+  bool _isLoading = false;
+
+  // Batch List
+  final List<Product> _tempBatchList = [];
+
+  final List<String> _categoryOptions = [
+    'Television', 'Refrigerator & Freezer', 'Air Conditioner',
+    'Washing Machine', 'Fan & Air Cooling', 'Kitchen Appliance',
+    'Small Home Appliance', 'Audio & Multimedia',
+    'Security & Smart Device', 'Accessories & Digital'
+  ];
+
+  @override
+  void initState() {
+    super.initState();
+    _mrpController.addListener(_calculatePrice);
+    _commissionController.addListener(_calculatePrice);
+  }
+
+  void _calculatePrice() {
+    final mrp = double.tryParse(_mrpController.text) ?? 0;
+    final comm = double.tryParse(_commissionController.text) ?? 0;
+    setState(() {
+      _calculatedBuyingPrice = mrp - (mrp * (comm / 100));
+    });
+  }
+
+  void _addToList() {
+    if (!_formKey.currentState!.validate()) return;
+    if (_selectedCategory == null) return;
+
+    final product = Product(
+      id: '', // Temp ID
+      name: _nameController.text.trim(),
+      model: _modelController.text.trim(),
+      category: _selectedCategory!,
+      capacity: _capacityController.text.trim(),
+      marketPrice: double.parse(_mrpController.text.trim()),
+      commissionPercent: double.parse(_commissionController.text.trim()),
+      buyingPrice: _calculatedBuyingPrice,
+      currentStock: int.parse(_qtyController.text.trim()),
+    );
+
+    setState(() {
+      _tempBatchList.add(product);
+      // Clear specific fields to speed up entry
+      _modelController.clear();
+      _nameController.clear();
+      _capacityController.clear();
+      _qtyController.clear();
+      // Keep pricing fields if user is adding similar items, or clear them:
+      // _mrpController.clear();
+      // _commissionController.clear();
+    });
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text("${product.category} Added! (${_tempBatchList.length} items total)"), duration: const Duration(seconds: 1)),
+    );
+  }
+
+  Future<void> _submitBatch() async {
+    if (_tempBatchList.isEmpty) return;
+
+    setState(() => _isLoading = true);
+
+    try {
+      // 1. Save to DB
+      await ref.read(inventoryRepositoryProvider).receiveBatchProducts(_tempBatchList);
+
+      // 2. Create a copy of the list for the PDF (before clearing UI)
+      final itemsSaved = List<Product>.from(_tempBatchList);
+
+      // 3. Clear UI
+      setState(() => _tempBatchList.clear());
+
+      // 4. Show Success Dialog with PDF Option
+      if (mounted) _showBatchSuccessDialog(itemsSaved);
+
+    } catch (e) {
+      debugPrint("Error: $e");
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: $e'), backgroundColor: Colors.red));
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
+    }
+  }
+
+  void _showBatchSuccessDialog(List<Product> itemsSaved) {
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => AlertDialog(
+        icon: const Icon(Icons.check_circle_rounded, color: Colors.green, size: 48),
+        title: const Text("Batch Received!"),
+        content: Text("Successfully added ${itemsSaved.length} items to inventory.\n\nGenerate Challan PDF?"),
+        actions: [
+          TextButton(
+            onPressed: () {
+              Navigator.pop(ctx);
+            },
+            child: const Text("Close"),
+          ),
+          FilledButton.icon(
+            icon: const Icon(Icons.print_rounded),
+            label: const Text("Print Challan"),
+            onPressed: () {
+              Navigator.pop(ctx);
+              // Call the new Batch Generator
+              ReceivingPdfGenerator.generateBatchReceivingMemo(
+                products: itemsSaved,
+                receivedBy: "Admin", // Replace with actual user email if available
+              );
+            },
+          )
+        ],
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
 
     return Scaffold(
-      appBar: AppBar(title: const Text("Business Report")),
+      appBar: AppBar(
+        title: const Text('Receive Stock (Batch)'),
+        actions: [
+          if (_tempBatchList.isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.only(right: 16),
+              child: Badge(
+                label: Text('${_tempBatchList.length}'),
+                child: const Icon(Icons.shopping_cart_outlined),
+              ),
+            )
+        ],
+      ),
       body: Column(
         children: [
-          // 1. HEADER & FILTERS
-          Container(
-            padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
-            decoration: BoxDecoration(
-              color: isDark ? const Color(0xFF0F172A) : Colors.white,
-              border: Border(bottom: BorderSide(color: isDark ? Colors.white10 : Colors.grey.shade200)),
-            ),
-            child: Column(
-              children: [
-                // Date Range Display
-                InkWell(
-                  onTap: () => _pickDateRange(context, ref),
-                  borderRadius: BorderRadius.circular(12),
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                    decoration: BoxDecoration(
-                      color: Theme.of(context).primaryColor.withOpacity(0.08),
-                      borderRadius: BorderRadius.circular(12),
-                      border: Border.all(color: Theme.of(context).primaryColor.withOpacity(0.2)),
-                    ),
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        Row(
-                          children: [
-                            Icon(Icons.calendar_month_rounded, color: Theme.of(context).primaryColor, size: 20),
-                            const SizedBox(width: 10),
-                            Text(
-                              "Period",
-                              style: TextStyle(fontWeight: FontWeight.bold, color: Theme.of(context).primaryColor),
-                            ),
-                          ],
-                        ),
-                        Text(
-                          "${DateFormat('dd MMM').format(currentRange.start)} - ${DateFormat('dd MMM').format(currentRange.end)}",
-                          style: TextStyle(fontWeight: FontWeight.bold, color: isDark ? Colors.white : Colors.black87),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 16),
-
-                // Filter Pills
-                SingleChildScrollView(
-                  scrollDirection: Axis.horizontal,
-                  child: Row(
-                    children: [
-                      _FilterChip(label: "Today", onTap: () => _setRange(ref, 'Today')),
-                      const SizedBox(width: 8),
-                      _FilterChip(label: "This Week", onTap: () => _setRange(ref, 'Week')),
-                      const SizedBox(width: 8),
-                      _FilterChip(label: "This Month", onTap: () => _setRange(ref, 'Month')),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-          ),
-
-          // 2. REPORT CONTENT
           Expanded(
-            child: salesAsync.when(
-              data: (salesData) {
-                // CALCULATIONS
-                double totalRevenue = 0;
-                double totalProfit = 0;
-                int totalItems = 0;
-
-                for (var sale in salesData) {
-                  totalRevenue += (sale['totalAmount'] ?? 0);
-                  totalProfit += (sale['profit'] ?? 0);
-                  totalItems += (sale['quantity'] as num).toInt();
-                }
-
-                if (salesData.isEmpty) {
-                  return Center(
-                    child: Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Icon(Icons.bar_chart_rounded, size: 80, color: Colors.grey.withOpacity(0.3)),
-                        const SizedBox(height: 16),
-                        Text("No sales records found", style: TextStyle(color: Colors.grey.withOpacity(0.8))),
-                      ],
-                    ),
-                  );
-                }
-
-                // 👇 GROUPING LOGIC
-                final groupedTransactions = _groupTransactions(salesData);
-
-                return ListView(
-                  padding: const EdgeInsets.all(16),
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.all(20.0),
+              child: Form(
+                key: _formKey,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    // METRICS ROW 1
+                    // --- INPUT FORM ---
+                    _SectionHeader(title: "Add Item Details", icon: Icons.add_circle_outline),
+                    const SizedBox(height: 16),
+
                     Row(
                       children: [
                         Expanded(
-                          child: _MetricCard(
-                            title: "Revenue",
-                            value: "৳${totalRevenue.toStringAsFixed(0)}",
-                            color: Colors.blue,
-                            icon: Icons.attach_money,
+                          flex: 3,
+                          child: DropdownButtonFormField<String>(
+                            isExpanded: true,
+                            value: _selectedCategory,
+                            // Ensure Dropdown text is visible in both modes
+                            style: TextStyle(
+                              color: isDark ? Colors.white : Colors.black87,
+                              fontSize: 14,
+                            ),
+                            dropdownColor: isDark ? const Color(0xFF1E293B) : Colors.white,
+                            items: _categoryOptions.map((c) => DropdownMenuItem(
+                                value: c,
+                                child: Text(
+                                    c,
+                                    style: TextStyle(fontSize: 13, color: isDark ? Colors.white : Colors.black87),
+                                    overflow: TextOverflow.ellipsis
+                                )
+                            )).toList(),
+                            onChanged: (v) => setState(() => _selectedCategory = v),
+                            decoration: _inputDecor(label: 'Category'),
+                            validator: (v) => v == null ? 'Required' : null,
                           ),
                         ),
-                        const SizedBox(width: 12),
+                        const SizedBox(width: 10),
                         Expanded(
-                          child: _MetricCard(
-                            title: "Net Profit",
-                            value: "৳${totalProfit.toStringAsFixed(0)}",
-                            color: Colors.green,
-                            icon: Icons.trending_up,
-                            isHighlighted: true,
+                          flex: 2,
+                          child: TextFormField(
+                            controller: _modelController,
+                            textInputAction: TextInputAction.next,
+                            decoration: _inputDecor(label: 'Model'),
+                            style: TextStyle(color: isDark ? Colors.white : Colors.black87),
+                            validator: (v) => v!.isEmpty ? 'Req' : null,
                           ),
                         ),
                       ],
                     ),
-                    const SizedBox(height: 12),
-                    // METRICS ROW 2
-                    _MetricCard(
-                      title: "Total Items Sold",
-                      value: "$totalItems Units",
-                      color: Colors.orange,
-                      icon: Icons.shopping_bag_outlined,
-                      isHorizontal: true,
+                    const SizedBox(height: 10),
+
+                    Row(
+                      children: [
+                        Expanded(
+                          child: TextFormField(
+                            controller: _nameController,
+                            textInputAction: TextInputAction.next,
+                            decoration: _inputDecor(label: 'Product Name'),
+                            style: TextStyle(color: isDark ? Colors.white : Colors.black87),
+                            validator: (v) => v!.isEmpty ? 'Req' : null,
+                          ),
+                        ),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: TextFormField(
+                            controller: _capacityController,
+                            textInputAction: TextInputAction.next,
+                            decoration: _inputDecor(label: 'Capacity/Size'),
+                            style: TextStyle(color: isDark ? Colors.white : Colors.black87),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 10),
+
+                    Row(
+                      children: [
+                        Expanded(
+                          child: TextFormField(
+                            controller: _mrpController,
+                            keyboardType: TextInputType.number,
+                            textInputAction: TextInputAction.next,
+                            decoration: _inputDecor(label: 'MRP'),
+                            style: TextStyle(color: isDark ? Colors.white : Colors.black87),
+                            validator: (v) => v!.isEmpty ? 'Req' : null,
+                          ),
+                        ),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: TextFormField(
+                            controller: _commissionController,
+                            keyboardType: TextInputType.number,
+                            textInputAction: TextInputAction.next,
+                            decoration: _inputDecor(label: 'Comm %'),
+                            style: TextStyle(color: isDark ? Colors.white : Colors.black87),
+                            validator: (v) => v!.isEmpty ? 'Req' : null,
+                          ),
+                        ),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: TextFormField(
+                            controller: _qtyController,
+                            keyboardType: TextInputType.number,
+                            textInputAction: TextInputAction.done,
+                            decoration: _inputDecor(label: 'Qty'),
+                            style: TextStyle(color: isDark ? Colors.white : Colors.black87),
+                            validator: (v) => v!.isEmpty ? 'Req' : null,
+                          ),
+                        ),
+                      ],
                     ),
 
-                    const SizedBox(height: 25),
+                    const SizedBox(height: 20),
 
-                    // 👇 RENDER GROUPED TRANSACTIONS
-                    ...groupedTransactions.entries.map((entry) {
-                      return Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          // Date Header
-                          Padding(
-                            padding: const EdgeInsets.symmetric(vertical: 12.0),
+                    SizedBox(
+                      width: double.infinity,
+                      height: 50,
+                      child: OutlinedButton.icon(
+                        onPressed: _addToList,
+                        icon: const Icon(Icons.playlist_add),
+                        label: const Text("ADD TO LIST"),
+                        style: OutlinedButton.styleFrom(
+                          side: BorderSide(color: Theme.of(context).primaryColor),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                        ),
+                      ),
+                    ),
+
+                    const SizedBox(height: 24),
+                    const Divider(thickness: 2),
+                    _SectionHeader(title: "Items to Save (${_tempBatchList.length})", icon: Icons.list_alt),
+
+                    if (_tempBatchList.isEmpty)
+                      Padding(
+                        padding: const EdgeInsets.all(20.0),
+                        child: Center(
                             child: Text(
-                              entry.key, // "Today", "Yesterday", or Date
-                              style: TextStyle(
-                                  fontSize: 16,
-                                  fontWeight: FontWeight.bold,
-                                  color: isDark ? Colors.white70 : Colors.grey[800]
+                              "List is empty. Add items above.",
+                              style: TextStyle(color: isDark ? Colors.white54 : Colors.grey[600]),
+                            )
+                        ),
+                      )
+                    else
+                      ListView.builder(
+                        shrinkWrap: true,
+                        physics: const NeverScrollableScrollPhysics(),
+                        itemCount: _tempBatchList.length,
+                        itemBuilder: (context, index) {
+                          final item = _tempBatchList[index];
+                          return Card(
+                            margin: const EdgeInsets.symmetric(vertical: 4),
+                            // Ensure card matches theme explicitly
+                            color: isDark ? const Color(0xFF1E293B) : Colors.white,
+                            child: ListTile(
+                              dense: true,
+                              leading: CircleAvatar(
+                                radius: 12,
+                                backgroundColor: isDark ? Colors.white10 : Colors.grey.shade300,
+                                child: Text(
+                                  "${index + 1}",
+                                  style: TextStyle(fontSize: 12, color: isDark ? Colors.white : Colors.black),
+                                ),
+                              ),
+                              title: Text(
+                                  "${item.category} - ${item.model}",
+                                  style: const TextStyle(fontWeight: FontWeight.bold)
+                              ),
+                              subtitle: Text(
+                                "Qty: ${item.currentStock} | Buy: ${item.buyingPrice.toStringAsFixed(0)}",
+                                style: TextStyle(color: isDark ? Colors.white60 : Colors.grey[700]),
+                              ),
+                              trailing: IconButton(
+                                icon: const Icon(Icons.remove_circle_outline, color: Colors.red),
+                                onPressed: () => setState(() => _tempBatchList.removeAt(index)),
                               ),
                             ),
-                          ),
-                          // List of Cards for this date
-                          ...entry.value.map((sale) {
-                            final date = (sale['timestamp'] as Timestamp).toDate();
-                            final timeStr = DateFormat('hh:mm a').format(date); // Just time needed now
+                          );
+                        },
+                      ),
 
-                            return _TransactionCard(
-                              title: sale['productName'] ?? 'Unknown',
-                              subtitle: sale['customerName'] ?? 'Guest',
-                              date: timeStr, // Showing only time inside card
-                              amount: "৳${sale['totalAmount']}",
-                              profit: "৳${(sale['profit'] as num).toStringAsFixed(0)}",
-                            );
-                          }),
-                        ],
-                      );
-                    }),
-
-                    // Bottom padding
-                    const SizedBox(height: 20),
+                    const SizedBox(height: 80),
                   ],
-                );
-              },
-              loading: () => const Center(child: CircularProgressIndicator()),
-              error: (e, s) => Center(child: Text("Error: $e")),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  // 👇 HELPER: Group transactions by Date
-  Map<String, List<Map<String, dynamic>>> _groupTransactions(List<Map<String, dynamic>> sales) {
-    final Map<String, List<Map<String, dynamic>>> grouped = {};
-    final now = DateTime.now();
-    final today = DateTime(now.year, now.month, now.day);
-    final yesterday = today.subtract(const Duration(days: 1));
-
-    for (var sale in sales) {
-      final date = (sale['timestamp'] as Timestamp).toDate();
-      final checkDate = DateTime(date.year, date.month, date.day);
-
-      String headerKey;
-      if (checkDate == today) {
-        headerKey = "Today";
-      } else if (checkDate == yesterday) {
-        headerKey = "Yesterday";
-      } else {
-        headerKey = DateFormat('dd MMM yyyy').format(date);
-      }
-
-      if (grouped[headerKey] == null) {
-        grouped[headerKey] = [];
-      }
-      grouped[headerKey]!.add(sale);
-    }
-    return grouped;
-  }
-
-  void _setRange(WidgetRef ref, String type) {
-    final now = DateTime.now();
-    DateTime start;
-    DateTime end = DateTime(now.year, now.month, now.day, 23, 59, 59);
-
-    if (type == 'Today') {
-      start = DateTime(now.year, now.month, now.day, 0, 0, 0);
-    } else if (type == 'Week') {
-      start = now.subtract(Duration(days: now.weekday));
-      start = DateTime(start.year, start.month, start.day, 0, 0, 0);
-    } else if (type == 'Month') {
-      start = DateTime(now.year, now.month, 1, 0, 0, 0);
-    } else {
-      return;
-    }
-    ref.read(dateRangeProvider.notifier).state = DateTimeRange(start: start, end: end);
-  }
-
-  Future<void> _pickDateRange(BuildContext context, WidgetRef ref) async {
-    final DateTimeRange? picked = await showDateRangePicker(
-      context: context,
-      firstDate: DateTime(2023),
-      lastDate: DateTime.now(),
-      currentDate: DateTime.now(),
-    );
-
-    if (picked != null) {
-      final adjustedStart = DateTime(picked.start.year, picked.start.month, picked.start.day, 0, 0, 0);
-      final adjustedEnd = DateTime(picked.end.year, picked.end.month, picked.end.day, 23, 59, 59);
-      ref.read(dateRangeProvider.notifier).state = DateTimeRange(start: adjustedStart, end: adjustedEnd);
-    }
-  }
-}
-
-// --- WIDGETS ---
-
-class _FilterChip extends StatelessWidget {
-  final String label;
-  final VoidCallback onTap;
-
-  const _FilterChip({required this.label, required this.onTap});
-
-  @override
-  Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(20),
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-        decoration: BoxDecoration(
-          color: isDark ? const Color(0xFF1E293B) : Colors.grey.shade100,
-          borderRadius: BorderRadius.circular(20),
-          border: Border.all(color: isDark ? Colors.white10 : Colors.grey.shade300),
-        ),
-        child: Text(label, style: TextStyle(color: isDark ? Colors.white70 : Colors.grey.shade800, fontSize: 13, fontWeight: FontWeight.w500)),
-      ),
-    );
-  }
-}
-
-class _MetricCard extends StatelessWidget {
-  final String title;
-  final String value;
-  final Color color;
-  final IconData icon;
-  final bool isHighlighted;
-  final bool isHorizontal;
-
-  const _MetricCard({
-    required this.title,
-    required this.value,
-    required this.color,
-    required this.icon,
-    this.isHighlighted = false,
-    this.isHorizontal = false,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-
-    return Container(
-      padding: const EdgeInsets.all(20),
-      decoration: BoxDecoration(
-        color: isHighlighted
-            ? color
-            : (isDark ? const Color(0xFF1E293B) : Colors.white),
-        borderRadius: BorderRadius.circular(20),
-        border: isHighlighted ? null : Border.all(color: color.withOpacity(0.2)),
-        boxShadow: [
-          BoxShadow(
-            color: color.withOpacity(isHighlighted ? 0.3 : 0.05),
-            blurRadius: 10,
-            offset: const Offset(0, 4),
-          ),
-        ],
-      ),
-      child: isHorizontal
-          ? Row(
-        children: [
-          Container(
-            padding: const EdgeInsets.all(10),
-            decoration: BoxDecoration(color: color.withOpacity(0.2), shape: BoxShape.circle),
-            child: Icon(icon, color: color),
-          ),
-          const SizedBox(width: 16),
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(title, style: TextStyle(color: isDark ? Colors.white60 : Colors.grey[600], fontSize: 12)),
-              Text(value, style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: isDark ? Colors.white : Colors.black87)),
-            ],
-          ),
-        ],
-      )
-          : Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Container(
-            padding: const EdgeInsets.all(8),
-            decoration: BoxDecoration(
-              color: isHighlighted ? Colors.white.withOpacity(0.2) : color.withOpacity(0.1),
-              borderRadius: BorderRadius.circular(8),
-            ),
-            child: Icon(icon, color: isHighlighted ? Colors.white : color, size: 24),
-          ),
-          const SizedBox(height: 12),
-          Text(
-            title,
-            style: TextStyle(
-              color: isHighlighted ? Colors.white.withOpacity(0.9) : (isDark ? Colors.white60 : Colors.grey[600]),
-              fontSize: 12,
-              fontWeight: FontWeight.w500,
-            ),
-          ),
-          const SizedBox(height: 4),
-          Text(
-            value,
-            style: TextStyle(
-              fontSize: 22,
-              fontWeight: FontWeight.bold,
-              color: isHighlighted ? Colors.white : (isDark ? Colors.white : Colors.black87),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _TransactionCard extends StatelessWidget {
-  final String title;
-  final String subtitle;
-  final String date;
-  final String amount;
-  final String profit;
-
-  const _TransactionCard({
-    required this.title,
-    required this.subtitle,
-    required this.date,
-    required this.amount,
-    required this.profit,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-
-    return Container(
-      margin: const EdgeInsets.only(bottom: 12),
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: isDark ? const Color(0xFF1E293B) : Colors.white,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: isDark ? Colors.white10 : Colors.grey.shade100),
-      ),
-      child: Row(
-        children: [
-          Container(
-            padding: const EdgeInsets.all(10),
-            decoration: BoxDecoration(
-              color: Colors.blue.withOpacity(0.1),
-              shape: BoxShape.circle,
-            ),
-            child: const Icon(Icons.receipt_long_rounded, color: Colors.blue, size: 20),
-          ),
-          const SizedBox(width: 16),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(title, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
-                const SizedBox(height: 2),
-                Text("$subtitle • $date", style: const TextStyle(fontSize: 12, color: Colors.grey)),
-              ],
-            ),
-          ),
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.end,
-            children: [
-              Text(amount, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
-              Container(
-                margin: const EdgeInsets.only(top: 4),
-                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                decoration: BoxDecoration(
-                  color: Colors.green.withOpacity(0.1),
-                  borderRadius: BorderRadius.circular(4),
-                ),
-                child: Text(
-                  "+$profit",
-                  style: TextStyle(fontSize: 10, color: Colors.green.shade700, fontWeight: FontWeight.bold),
                 ),
               ),
-            ],
+            ),
+          ),
+
+          Container(
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: isDark ? const Color(0xFF0F172A) : Colors.white,
+              boxShadow: [
+                BoxShadow(
+                    color: isDark ? Colors.black26 : Colors.black12,
+                    blurRadius: 10,
+                    offset: const Offset(0, -5)
+                )
+              ],
+            ),
+            child: SizedBox(
+              width: double.infinity,
+              height: 56,
+              child: ElevatedButton.icon(
+                onPressed: (_isLoading || _tempBatchList.isEmpty) ? null : _submitBatch,
+                icon: const Icon(Icons.save_rounded),
+                label: _isLoading
+                    ? const CircularProgressIndicator(color: Colors.white)
+                    : Text("SAVE ALL (${_tempBatchList.length} ITEMS)"),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.green,
+                  foregroundColor: Colors.white,
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                ),
+              ),
+            ),
           ),
         ],
       ),
+    );
+  }
+
+  // 👇 UPDATED: Explicit text styling for both modes
+  InputDecoration _inputDecor({required String label}) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final primaryColor = Theme.of(context).primaryColor;
+
+    return InputDecoration(
+      labelText: label,
+      // Label text (unfocused) - Light Grey for Dark Mode, Dark Grey for Light Mode
+      labelStyle: TextStyle(
+        color: isDark ? Colors.white60 : Colors.grey[600],
+        fontSize: 14,
+      ),
+      // Floating Label (focused) - Primary Color
+      floatingLabelStyle: TextStyle(
+        color: primaryColor,
+        fontWeight: FontWeight.bold,
+      ),
+      hintText: label,
+      hintStyle: TextStyle(
+        color: isDark ? Colors.white24 : Colors.black12,
+      ),
+      filled: true,
+      // Fill Color - Darker Slate for Dark Mode, very light grey for Light Mode
+      fillColor: isDark ? const Color(0xFF1E293B) : Colors.grey[100],
+      border: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(12),
+          borderSide: BorderSide.none
+      ),
+      enabledBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(12),
+        borderSide: BorderSide.none,
+      ),
+      focusedBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(12),
+        borderSide: BorderSide(color: primaryColor, width: 1.5),
+      ),
+      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+      isDense: true,
+    );
+  }
+}
+
+class _SectionHeader extends StatelessWidget {
+  final String title;
+  final IconData icon;
+  const _SectionHeader({required this.title, required this.icon});
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        Icon(icon, size: 18, color: Theme.of(context).primaryColor),
+        const SizedBox(width: 8),
+        Text(title, style: TextStyle(color: Theme.of(context).primaryColor, fontWeight: FontWeight.bold)),
+      ],
     );
   }
 }

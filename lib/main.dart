@@ -9,7 +9,7 @@ import 'src/features/inventory/presentation/receive_product_screen.dart';
 import 'src/features/inventory/presentation/inventory_screen.dart'; // 👈 Important Import
 import 'src/features/analytics/presentation/analytics_screen.dart';
 import 'src/features/due_management/presentation/due_screen.dart';
-
+import 'src/features/expenses/presentation/expense_screen.dart';
 class ThemeModeNotifier extends Notifier<ThemeMode> {
   @override
   ThemeMode build() {
@@ -211,6 +211,14 @@ class DashboardScreen extends ConsumerWidget {
                   color: Colors.red,
                   onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => DueScreen())),
                 ),
+                // ... inside GridView.count children:
+                _DashboardCard(
+                  title: "Expenses",
+                  icon: Icons.money_off_csred_rounded,
+                  color: Colors.redAccent,
+                  onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const ExpenseScreen())),
+                ),
+// ...
               ],
             ),
           ],
