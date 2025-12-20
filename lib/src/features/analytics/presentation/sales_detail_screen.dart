@@ -17,6 +17,9 @@ class SalesDetailScreen extends StatelessWidget {
     final productName = sale['productName'] ?? 'Unknown Product';
     final customerName = sale['customerName'] ?? 'Guest';
     final customerPhone = sale['customerPhone'] ?? 'N/A';
+    // 👈 Retrieve Address (Handle null safely)
+    final customerAddress = sale['customerAddress'] ?? 'N/A';
+
     final totalAmount = (sale['totalAmount'] ?? 0).toDouble();
     final profit = (sale['profit'] ?? 0).toDouble();
     final quantity = (sale['quantity'] ?? 1).toInt();
@@ -30,22 +33,22 @@ class SalesDetailScreen extends StatelessWidget {
       floatingActionButton: FloatingActionButton.extended(
         onPressed: () {
           try {
-            // Generate PDF using existing generator
             PdfGenerator.generateInvoice(
               invoiceId: invoiceId,
               customerName: customerName,
               customerPhone: customerPhone,
+              customerAddress: customerAddress, // 👈 Pass Address to PDF
               products: [
                 {
                   'name': productName,
                   'model': sale['productModel'] ?? '',
                   'qty': quantity,
                   'price': unitPrice,
-                  'total': totalAmount + discount, // Gross total for the line item usually
+                  'total': totalAmount + discount,
                 }
               ],
               totalAmount: totalAmount,
-              paidAmount: totalAmount, // Fully paid since it's in this list
+              paidAmount: totalAmount,
               dueAmount: 0,
               discount: discount,
               date: date,
@@ -57,7 +60,9 @@ class SalesDetailScreen extends StatelessWidget {
           }
         },
         icon: const Icon(Icons.print),
-        label: const Text("Print Memo"),
+        // 1. WHITE: Button Text
+        label: const Text("Print Memo", style: TextStyle(color: Colors.white)),
+        backgroundColor: Colors.green, // Always Green button
       ),
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(16),
@@ -77,16 +82,19 @@ class SalesDetailScreen extends StatelessWidget {
               ),
               child: Column(
                 children: [
+                  // 1. WHITE (faint): Label
                   Text("Total Received", style: TextStyle(color: isDark ? Colors.white60 : Colors.grey)),
                   const SizedBox(height: 8),
+                  // 3. GREEN: Total Amount
                   Text(
                     "৳${totalAmount.toStringAsFixed(0)}",
-                    style: TextStyle(fontSize: 32, fontWeight: FontWeight.bold, color: Colors.green.shade400),
+                    style: TextStyle(fontSize: 32, fontWeight: FontWeight.bold, color: isDark ? Colors.greenAccent : Colors.green.shade700),
                   ),
                   const SizedBox(height: 8),
+                  // 2. YELLOW: Date
                   Text(
                     DateFormat('dd MMM yyyy • hh:mm a').format(date),
-                    style: TextStyle(color: isDark ? Colors.white38 : Colors.grey[500], fontSize: 13),
+                    style: TextStyle(color: isDark ? Colors.yellowAccent : Colors.grey[500], fontSize: 13),
                   ),
                 ],
               ),
@@ -101,7 +109,7 @@ class SalesDetailScreen extends StatelessWidget {
                 _DetailRow(label: "Product", value: productName),
                 _DetailRow(label: "Model", value: sale['productModel'] ?? 'N/A'),
                 _DetailRow(label: "Category", value: sale['productCategory'] ?? 'N/A'),
-                const Divider(),
+                const Divider(color: Colors.white24),
                 _DetailRow(label: "Quantity Sold", value: "$quantity Units"),
                 _DetailRow(label: "Selling Price (Unit)", value: "৳${unitPrice.toStringAsFixed(0)}"),
               ],
@@ -115,28 +123,31 @@ class SalesDetailScreen extends StatelessWidget {
               children: [
                 _DetailRow(label: "Name", value: customerName),
                 _DetailRow(label: "Phone", value: customerPhone),
+                // 👈 Show Address Row
+                _DetailRow(label: "Address", value: customerAddress),
               ],
             ),
             const SizedBox(height: 16),
 
-            // 4. Financial Details (Profit visible to Admin)
+            // 4. Financial Details
             _DetailSection(
               title: "Financial Analysis (Admin)",
               icon: Icons.analytics_outlined,
-              color: Colors.orange,
+              color: isDark ? Colors.orangeAccent : Colors.orange,
               children: [
                 _DetailRow(label: "Buying Price (Unit)", value: "৳${buyingPrice.toStringAsFixed(0)}"),
                 _DetailRow(label: "Total Cost", value: "৳${(buyingPrice * quantity).toStringAsFixed(0)}"),
-                const Divider(),
+                const Divider(color: Colors.white24),
                 _DetailRow(
                     label: "Net Profit",
                     value: "৳${profit.toStringAsFixed(0)}",
-                    valueColor: Colors.green,
+                    // 3. GREEN: Profit Value
+                    valueColor: isDark ? Colors.greenAccent : Colors.green,
                     isBold: true
                 ),
               ],
             ),
-            const SizedBox(height: 80), // Space for FAB
+            const SizedBox(height: 80),
           ],
         ),
       ),
@@ -155,7 +166,8 @@ class _DetailSection extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    final themeColor = color ?? Theme.of(context).primaryColor;
+    // 2. YELLOW: Section Headers (or specific color passed)
+    final themeColor = color ?? (isDark ? Colors.yellowAccent : Theme.of(context).primaryColor);
 
     return Container(
       padding: const EdgeInsets.all(16),
@@ -198,13 +210,15 @@ class _DetailRow extends StatelessWidget {
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          Text(label, style: TextStyle(color: isDark ? Colors.white60 : Colors.grey[600])),
+          // 1. WHITE (faint): Label text
+          Text(label, style: TextStyle(color: isDark ? Colors.white70 : Colors.grey[600])),
           Expanded(
             child: Text(
               value,
               textAlign: TextAlign.end,
               style: TextStyle(
                   fontWeight: isBold ? FontWeight.bold : FontWeight.normal,
+                  // 1. WHITE: Value Text (unless specific color like Green/Red is passed)
                   color: valueColor ?? (isDark ? Colors.white : Colors.black87),
                   fontSize: 15
               ),
