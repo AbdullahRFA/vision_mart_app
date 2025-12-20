@@ -7,9 +7,10 @@ class DueScreen extends ConsumerWidget {
   const DueScreen({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  // 1. We use this 'parentContext' which stays alive even if rows are deleted
+  Widget build(BuildContext parentContext, WidgetRef ref) {
     final dueListAsync = ref.watch(dueStreamProvider);
-    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final isDark = Theme.of(parentContext).brightness == Brightness.dark;
 
     return Scaffold(
       appBar: AppBar(title: const Text("Due List (Khata)")),
@@ -35,7 +36,6 @@ class DueScreen extends ConsumerWidget {
             );
           }
 
-          // Calculate Total OUTSTANDING
           double totalOutstanding = 0;
           for (var item in dues) {
             double total = (item['totalAmount'] ?? 0).toDouble();
@@ -45,14 +45,14 @@ class DueScreen extends ConsumerWidget {
 
           return Column(
             children: [
-              // 1. FINANCIAL SUMMARY CARD
+              // SUMMARY CARD
               Container(
                 width: double.infinity,
                 margin: const EdgeInsets.all(16),
                 padding: const EdgeInsets.all(24),
                 decoration: BoxDecoration(
                   gradient: const LinearGradient(
-                    colors: [Color(0xFFEF4444), Color(0xFFB91C1C)], // Red 500 -> Red 700
+                    colors: [Color(0xFFEF4444), Color(0xFFB91C1C)],
                     begin: Alignment.topLeft,
                     end: Alignment.bottomRight,
                   ),
@@ -80,13 +80,14 @@ class DueScreen extends ConsumerWidget {
                 ),
               ),
 
-              // 2. THE LIST
+              // THE LIST
               Expanded(
                 child: ListView.separated(
                   padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
                   itemCount: dues.length,
                   separatorBuilder: (_, __) => const SizedBox(height: 12),
-                  itemBuilder: (context, index) {
+                  // 2. Renamed 'context' to 'itemContext' to avoid shadowing
+                  itemBuilder: (itemContext, index) {
                     final sale = dues[index];
                     final double totalAmount = (sale['totalAmount'] ?? 0).toDouble();
                     final double paidAmount = (sale['paidAmount'] ?? 0).toDouble();
@@ -96,7 +97,9 @@ class DueScreen extends ConsumerWidget {
                       sale: sale,
                       remainingDue: remainingDue,
                       totalAmount: totalAmount,
-                      onPay: () => _showPaymentDialog(context, ref, sale, remainingDue),
+                      // 3. CRITICAL FIX: Pass 'parentContext' here, NOT 'itemContext'
+                      // This ensures the dialog works even if this row is deleted immediately after payment.
+                      onPay: () => _showPaymentDialog(parentContext, ref, sale, remainingDue),
                     );
                   },
                 ),
@@ -136,7 +139,7 @@ class DueScreen extends ConsumerWidget {
                   const SizedBox(width: 8),
                   Expanded(
                     child: Text(
-                      "Remaining Due: ৳${remainingDue.toStringAsFixed(0)}",
+                      "Remaining Due: ৳${remainingDue.toStringAsFixed(2)}",
                       style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.red),
                     ),
                   ),
@@ -146,7 +149,7 @@ class DueScreen extends ConsumerWidget {
             const SizedBox(height: 20),
             TextField(
               controller: amountController,
-              keyboardType: TextInputType.number,
+              keyboardType: const TextInputType.numberWithOptions(decimal: true),
               autofocus: true,
               style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
               decoration: InputDecoration(
@@ -163,7 +166,8 @@ class DueScreen extends ConsumerWidget {
                 _QuickAmountChip(label: "1000", onTap: () => amountController.text = "1000"),
                 _QuickAmountChip(
                   label: "FULL DUE",
-                  onTap: () => amountController.text = remainingDue.toStringAsFixed(0),
+                  // Use 2 decimal places to avoid rounding errors
+                  onTap: () => amountController.text = remainingDue.toStringAsFixed(2),
                   isPrimary: true,
                 ),
               ],
@@ -183,25 +187,35 @@ class DueScreen extends ConsumerWidget {
             ),
             onPressed: () async {
               final amount = double.tryParse(amountController.text) ?? 0;
-              if (amount <= 0 || amount > remainingDue) {
+
+              // Validation with small buffer for float precision
+              if (amount <= 0 || amount > (remainingDue + 0.1)) {
                 ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text("Invalid Amount! Check value."), behavior: SnackBarBehavior.floating),
+                  SnackBar(content: Text("Invalid Amount! Max: ${remainingDue.toStringAsFixed(2)}"), behavior: SnackBarBehavior.floating),
                 );
                 return;
               }
 
+              // Close the INPUT dialog
               Navigator.pop(ctx);
 
               try {
+                // Logic to handle full payment exactly
+                final isFullPayment = amount >= (remainingDue - 0.1);
+                final amountToPay = isFullPayment ? remainingDue : amount;
+
                 await ref.read(dueRepositoryProvider).receivePayment(
                   saleId: sale['saleId'],
                   currentPaidAmount: (sale['paidAmount'] ?? 0).toDouble(),
                   totalOrderAmount: (sale['totalAmount'] ?? 0).toDouble(),
-                  amountPayingNow: amount,
+                  amountPayingNow: amountToPay,
                 );
 
+                // 4. CHECK PARENT CONTEXT MOUNTED
+                // Since we passed 'parentContext' to this function, it should still be mounted
+                // even if the list item was removed.
                 if (context.mounted) {
-                  _showSuccessDialog(context, amount, remainingDue, sale);
+                  _showSuccessDialog(context, amountToPay, remainingDue, sale);
                 }
               } catch (e) {
                 if (context.mounted) {
@@ -216,7 +230,10 @@ class DueScreen extends ConsumerWidget {
     );
   }
 
-  void _showSuccessDialog(BuildContext context, double amount, double remainingDue, Map<String, dynamic> sale) {
+  void _showSuccessDialog(BuildContext context, double amountPaid, double totalDueBefore, Map<String, dynamic> sale) {
+    double remainingAfter = totalDueBefore - amountPaid;
+    if (remainingAfter < 0) remainingAfter = 0;
+
     showDialog(
       context: context,
       barrierDismissible: false,
@@ -224,7 +241,7 @@ class DueScreen extends ConsumerWidget {
         icon: const Icon(Icons.check_circle_rounded, color: Colors.green, size: 48),
         title: const Text("Payment Successful!"),
         content: Text(
-          amount >= (remainingDue - 0.1)
+          remainingAfter == 0
               ? "The due has been FULLY CLEARED.\nGenerate Receipt?"
               : "Partial payment recorded.\nGenerate Receipt?",
           textAlign: TextAlign.center,
@@ -243,9 +260,9 @@ class DueScreen extends ConsumerWidget {
                 customerName: sale['customerName'],
                 customerPhone: sale['customerPhone'] ?? '',
                 productName: sale['productName'],
-                totalDueBefore: remainingDue,
-                amountPaid: amount,
-                remainingDue: remainingDue - amount,
+                totalDueBefore: totalDueBefore,
+                amountPaid: amountPaid,
+                remainingDue: remainingAfter,
               );
             },
           )
@@ -288,15 +305,12 @@ class _DueCard extends StatelessWidget {
         padding: const EdgeInsets.all(16.0),
         child: Row(
           children: [
-            // Avatar
             CircleAvatar(
               radius: 24,
               backgroundColor: Colors.red.withOpacity(0.1),
               child: const Icon(Icons.history_edu_rounded, color: Colors.red),
             ),
             const SizedBox(width: 16),
-
-            // Info
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -321,8 +335,6 @@ class _DueCard extends StatelessWidget {
                 ],
               ),
             ),
-
-            // Money & Action
             Column(
               crossAxisAlignment: CrossAxisAlignment.end,
               children: [
