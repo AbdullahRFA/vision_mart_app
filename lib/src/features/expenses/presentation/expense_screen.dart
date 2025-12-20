@@ -2,7 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 import '../data/expense_repository.dart';
-import '../domain/expense_model.dart'; // Make sure this import exists
+import '../domain/expense_model.dart';
+
 class ExpenseScreen extends ConsumerWidget {
   const ExpenseScreen({super.key});
 
@@ -41,71 +42,118 @@ class ExpenseScreen extends ConsumerWidget {
               ),
               borderRadius: BorderRadius.circular(20),
               boxShadow: [
-                BoxShadow(color: Colors.red.withOpacity(0.3), blurRadius: 10, offset: const Offset(0, 5)),
+                BoxShadow(
+                    color: Colors.red.withOpacity(0.3),
+                    blurRadius: 10,
+                    offset: const Offset(0, 5)),
               ],
             ),
             child: Column(
               children: [
-                const Text("Total Expenses Recorded", style: TextStyle(color: Colors.white70)),
+                const Text("Total Expenses Recorded",
+                    style: TextStyle(color: Colors.white70)),
                 const SizedBox(height: 5),
                 Text(
                   "৳${totalExpense.toStringAsFixed(0)}",
-                  style: const TextStyle(fontSize: 32, fontWeight: FontWeight.bold, color: Colors.white),
+                  style: const TextStyle(
+                      fontSize: 32,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.white),
                 ),
               ],
             ),
           ),
 
-          // 2. Expense List
+          // 2. Grouped Expense List
           Expanded(
             child: expenseAsync.when(
               data: (expenses) {
                 if (expenses.isEmpty) {
-                  return Center(child: Text("No expenses found.", style: TextStyle(color: Colors.grey[600])));
+                  return Center(
+                      child: Text("No expenses found.",
+                          style: TextStyle(color: Colors.grey[600])));
                 }
-                return ListView.builder(
+
+                // 👇 Group the expenses by date
+                final groupedExpenses = _groupExpenses(expenses);
+
+                return ListView(
                   padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                  itemCount: expenses.length,
-                  itemBuilder: (context, index) {
-                    final expense = expenses[index];
-                    // ... inside ListView.builder ...
-                    return Card(
-                      color: isDark ? const Color(0xFF1E293B) : Colors.white,
-                      margin: const EdgeInsets.only(bottom: 10),
-                      child: ListTile(
-                        leading: CircleAvatar(
-                          backgroundColor: Colors.red.withOpacity(0.1),
-                          child: Icon(_getIconForCategory(expense.category), color: Colors.red),
-                        ),
-                        title: Text(expense.category, style: const TextStyle(fontWeight: FontWeight.bold)),
-                        subtitle: Text(
-                          "${DateFormat('dd MMM yyyy').format(expense.date)} • ${expense.note}",
-                          maxLines: 1, overflow: TextOverflow.ellipsis,
-                        ),
-                        trailing: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Text(
-                              "-৳${expense.amount.toStringAsFixed(0)}",
-                              style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.red, fontSize: 16),
+                  children: groupedExpenses.entries.map((entry) {
+                    final dateHeader = entry.key;
+                    final dailyExpenses = entry.value;
+
+                    return Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        // --- DATE HEADER ---
+                        Padding(
+                          padding: const EdgeInsets.symmetric(vertical: 12.0, horizontal: 4),
+                          child: Text(
+                            dateHeader,
+                            style: TextStyle(
+                              fontSize: 14,
+                              fontWeight: FontWeight.bold,
+                              color: isDark ? Colors.white54 : Colors.grey[700],
+                              letterSpacing: 1,
                             ),
-                            const SizedBox(width: 8),
-                            // 👇 EDIT BUTTON
-                            IconButton(
-                              icon: const Icon(Icons.edit, size: 20, color: Colors.blue),
-                              onPressed: () => _showEditExpenseDialog(context, ref, expense),
-                            ),
-                            // 👇 DELETE BUTTON
-                            IconButton(
-                              icon: const Icon(Icons.delete_outline, size: 20, color: Colors.grey),
-                              onPressed: () => _confirmDelete(context, ref, expense.id),
-                            ),
-                          ],
+                          ),
                         ),
-                      ),
+
+                        // --- EXPENSE ITEMS FOR THIS DATE ---
+                        ...dailyExpenses.map((expense) {
+                          return Card(
+                            color: isDark
+                                ? const Color(0xFF1E293B)
+                                : Colors.white,
+                            margin: const EdgeInsets.only(bottom: 10),
+                            child: ListTile(
+                              leading: CircleAvatar(
+                                backgroundColor: Colors.red.withOpacity(0.1),
+                                child: Icon(_getIconForCategory(expense.category),
+                                    color: Colors.red),
+                              ),
+                              title: Text(expense.category,
+                                  style: const TextStyle(fontWeight: FontWeight.bold)),
+                              subtitle: Text(
+                                // Show Time instead of Date here since Date is in header
+                                "${DateFormat('hh:mm a').format(expense.date)} • ${expense.note}",
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                              trailing: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Text(
+                                    "-৳${expense.amount.toStringAsFixed(0)}",
+                                    style: const TextStyle(
+                                        fontWeight: FontWeight.bold,
+                                        color: Colors.red,
+                                        fontSize: 16),
+                                  ),
+                                  const SizedBox(width: 8),
+                                  // Edit
+                                  IconButton(
+                                    icon: const Icon(Icons.edit,
+                                        size: 20, color: Colors.blue),
+                                    onPressed: () => _showEditExpenseDialog(
+                                        context, ref, expense),
+                                  ),
+                                  // Delete
+                                  IconButton(
+                                    icon: const Icon(Icons.delete_outline,
+                                        size: 20, color: Colors.grey),
+                                    onPressed: () => _confirmDelete(
+                                        context, ref, expense.id),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          );
+                        }),
+                      ],
                     );
-// ...
-                  },
+                  }).toList(),
                 );
               },
               loading: () => const Center(child: CircularProgressIndicator()),
@@ -117,14 +165,51 @@ class ExpenseScreen extends ConsumerWidget {
     );
   }
 
+  // 👇 GROUPING LOGIC
+  Map<String, List<Expense>> _groupExpenses(List<Expense> expenses) {
+    final grouped = <String, List<Expense>>{};
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    final yesterday = today.subtract(const Duration(days: 1));
+    final tomorrow = today.add(const Duration(days: 1));
+
+    for (var expense in expenses) {
+      final date = expense.date;
+      final checkDate = DateTime(date.year, date.month, date.day);
+
+      String header;
+      if (checkDate == today) {
+        header = "Today";
+      } else if (checkDate == yesterday) {
+        header = "Yesterday";
+      } else if (checkDate == tomorrow) {
+        header = "Tomorrow";
+      } else {
+        header = DateFormat('dd MMM yyyy').format(date);
+      }
+
+      if (grouped[header] == null) {
+        grouped[header] = [];
+      }
+      grouped[header]!.add(expense);
+    }
+    return grouped;
+  }
+
   IconData _getIconForCategory(String category) {
     switch (category) {
-      case 'Shop Rent': return Icons.store;
-      case 'Electric Bill': return Icons.bolt;
-      case 'Transport Cost': return Icons.local_shipping;
-      case 'Food Cost': return Icons.restaurant;
-      case 'Salary': return Icons.people;
-      default: return Icons.money_off;
+      case 'Shop Rent':
+        return Icons.store;
+      case 'Electric Bill':
+        return Icons.bolt;
+      case 'Transport Cost':
+        return Icons.local_shipping;
+      case 'Food Cost':
+        return Icons.restaurant;
+      case 'Salary':
+        return Icons.people;
+      default:
+        return Icons.money_off;
     }
   }
 
@@ -135,7 +220,8 @@ class ExpenseScreen extends ConsumerWidget {
         title: const Text("Delete Expense?"),
         content: const Text("Are you sure? This cannot be undone."),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text("Cancel")),
+          TextButton(
+              onPressed: () => Navigator.pop(ctx), child: const Text("Cancel")),
           TextButton(
             onPressed: () {
               ref.read(expenseRepositoryProvider).deleteExpense(id);
@@ -149,19 +235,40 @@ class ExpenseScreen extends ConsumerWidget {
   }
 
   void _showAddExpenseDialog(BuildContext context, WidgetRef ref) {
-    final formKey = GlobalKey<FormState>();
-    final amountCtrl = TextEditingController();
-    final noteCtrl = TextEditingController();
-    String selectedCategory = 'Shop Rent';
-    DateTime selectedDate = DateTime.now();
+    _showExpenseDialog(context, ref, null);
+  }
 
-    final categories = ['Shop Rent', 'Electric Bill', 'Transport Cost', 'Food Cost', 'Salary', 'Maintenance', 'Other'];
+  void _showEditExpenseDialog(BuildContext context, WidgetRef ref, Expense expense) {
+    _showExpenseDialog(context, ref, expense);
+  }
+
+  // 👇 Unified Dialog for Add & Edit
+  void _showExpenseDialog(BuildContext context, WidgetRef ref, Expense? expense) {
+    final isEditing = expense != null;
+    final formKey = GlobalKey<FormState>();
+
+    // Controllers
+    final amountCtrl = TextEditingController(text: isEditing ? expense.amount.toString() : '');
+    final noteCtrl = TextEditingController(text: isEditing ? expense.note : '');
+
+    String selectedCategory = isEditing ? expense.category : 'Shop Rent';
+    DateTime selectedDate = isEditing ? expense.date : DateTime.now();
+
+    final categories = [
+      'Shop Rent', 'Electric Bill', 'Transport Cost',
+      'Food Cost', 'Salary', 'Maintenance', 'Other'
+    ];
+
+    // Handle "Other" categories if custom data was saved previously
+    if (!categories.contains(selectedCategory)) {
+      selectedCategory = 'Other';
+    }
 
     showDialog(
       context: context,
       builder: (ctx) => StatefulBuilder(
         builder: (context, setState) => AlertDialog(
-          title: const Text("Add New Expense"),
+          title: Text(isEditing ? "Edit Expense" : "Add New Expense"),
           content: SingleChildScrollView(
             child: Form(
               key: formKey,
@@ -170,24 +277,30 @@ class ExpenseScreen extends ConsumerWidget {
                 children: [
                   DropdownButtonFormField<String>(
                     value: selectedCategory,
-                    items: categories.map((c) => DropdownMenuItem(value: c, child: Text(c))).toList(),
+                    items: categories
+                        .map((c) => DropdownMenuItem(value: c, child: Text(c)))
+                        .toList(),
                     onChanged: (v) => setState(() => selectedCategory = v!),
-                    decoration: const InputDecoration(labelText: "Category", border: OutlineInputBorder()),
+                    decoration: const InputDecoration(
+                        labelText: "Category", border: OutlineInputBorder()),
                   ),
                   const SizedBox(height: 10),
                   TextFormField(
                     controller: amountCtrl,
                     keyboardType: TextInputType.number,
-                    decoration: const InputDecoration(labelText: "Amount (Tk)", border: OutlineInputBorder()),
+                    decoration: const InputDecoration(
+                        labelText: "Amount (Tk)", border: OutlineInputBorder()),
                     validator: (v) => v!.isEmpty ? "Required" : null,
                   ),
                   const SizedBox(height: 10),
                   TextFormField(
                     controller: noteCtrl,
-                    decoration: const InputDecoration(labelText: "Note (Optional)", border: OutlineInputBorder()),
+                    decoration: const InputDecoration(
+                        labelText: "Note (Optional)", border: OutlineInputBorder()),
                   ),
                   const SizedBox(height: 10),
                   ListTile(
+                    contentPadding: EdgeInsets.zero,
                     title: Text("Date: ${DateFormat('dd MMM yyyy').format(selectedDate)}"),
                     trailing: const Icon(Icons.calendar_today),
                     onTap: () async {
@@ -195,7 +308,7 @@ class ExpenseScreen extends ConsumerWidget {
                         context: context,
                         initialDate: selectedDate,
                         firstDate: DateTime(2020),
-                        lastDate: DateTime.now(),
+                        lastDate: DateTime(2030), // Allow future dates
                       );
                       if (picked != null) setState(() => selectedDate = picked);
                     },
@@ -205,114 +318,42 @@ class ExpenseScreen extends ConsumerWidget {
             ),
           ),
           actions: [
-            TextButton(onPressed: () => Navigator.pop(ctx), child: const Text("Cancel")),
+            TextButton(
+                onPressed: () => Navigator.pop(ctx), child: const Text("Cancel")),
             ElevatedButton(
               onPressed: () async {
                 if (!formKey.currentState!.validate()) return;
                 Navigator.pop(ctx);
                 try {
-                  await ref.read(expenseRepositoryProvider).addExpense(
-                    category: selectedCategory,
-                    amount: double.parse(amountCtrl.text),
-                    note: noteCtrl.text.trim(),
-                    date: selectedDate,
-                  );
-                  if (context.mounted) {
-                    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Expense Added")));
+                  if (isEditing) {
+                    await ref.read(expenseRepositoryProvider).updateExpense(
+                      id: expense.id,
+                      category: selectedCategory,
+                      amount: double.parse(amountCtrl.text),
+                      note: noteCtrl.text.trim(),
+                      date: selectedDate,
+                    );
+                  } else {
+                    await ref.read(expenseRepositoryProvider).addExpense(
+                      category: selectedCategory,
+                      amount: double.parse(amountCtrl.text),
+                      note: noteCtrl.text.trim(),
+                      date: selectedDate,
+                    );
                   }
-                } catch (e) {
-                  // handle error
-                }
-              },
-              child: const Text("Save"),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-  void _showEditExpenseDialog(BuildContext context, WidgetRef ref, Expense expense) {
-    final formKey = GlobalKey<FormState>();
-    // Pre-fill controllers with existing data
-    final amountCtrl = TextEditingController(text: expense.amount.toString());
-    final noteCtrl = TextEditingController(text: expense.note);
-    String selectedCategory = expense.category;
-    DateTime selectedDate = expense.date;
 
-    final categories = ['Shop Rent', 'Electric Bill', 'Transport Cost', 'Food Cost', 'Salary', 'Maintenance', 'Other'];
-
-    showDialog(
-      context: context,
-      builder: (ctx) => StatefulBuilder(
-        builder: (context, setState) => AlertDialog(
-          title: const Text("Edit Expense"),
-          content: SingleChildScrollView(
-            child: Form(
-              key: formKey,
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  DropdownButtonFormField<String>(
-                    value: categories.contains(selectedCategory) ? selectedCategory : 'Other',
-                    items: categories.map((c) => DropdownMenuItem(value: c, child: Text(c))).toList(),
-                    onChanged: (v) => setState(() => selectedCategory = v!),
-                    decoration: const InputDecoration(labelText: "Category", border: OutlineInputBorder()),
-                  ),
-                  const SizedBox(height: 10),
-                  TextFormField(
-                    controller: amountCtrl,
-                    keyboardType: TextInputType.number,
-                    decoration: const InputDecoration(labelText: "Amount (Tk)", border: OutlineInputBorder()),
-                    validator: (v) => v!.isEmpty ? "Required" : null,
-                  ),
-                  const SizedBox(height: 10),
-                  TextFormField(
-                    controller: noteCtrl,
-                    decoration: const InputDecoration(labelText: "Note (Optional)", border: OutlineInputBorder()),
-                  ),
-                  const SizedBox(height: 10),
-                  ListTile(
-                    title: Text("Date: ${DateFormat('dd MMM yyyy').format(selectedDate)}"),
-                    trailing: const Icon(Icons.calendar_today),
-                    onTap: () async {
-                      final picked = await showDatePicker(
-                        context: context,
-                        initialDate: selectedDate,
-                        firstDate: DateTime(2020),
-                        lastDate: DateTime.now(),
-                      );
-                      if (picked != null) setState(() => selectedDate = picked);
-                    },
-                  ),
-                ],
-              ),
-            ),
-          ),
-          actions: [
-            TextButton(onPressed: () => Navigator.pop(ctx), child: const Text("Cancel")),
-            ElevatedButton(
-              onPressed: () async {
-                if (!formKey.currentState!.validate()) return;
-                Navigator.pop(ctx);
-                try {
-                  // Call Update Method
-                  await ref.read(expenseRepositoryProvider).updateExpense(
-                    id: expense.id,
-                    category: selectedCategory,
-                    amount: double.parse(amountCtrl.text),
-                    note: noteCtrl.text.trim(),
-                    date: selectedDate,
-                  );
                   if (context.mounted) {
-                    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Expense Updated")));
+                    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+                        content: Text(isEditing ? "Expense Updated" : "Expense Added")));
                   }
                 } catch (e) {
                   if (context.mounted) {
-                    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Error: $e")));
+                    ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(content: Text("Error: $e"), backgroundColor: Colors.red));
                   }
                 }
               },
-              child: const Text("Update"),
+              child: Text(isEditing ? "Update" : "Save"),
             ),
           ],
         ),
