@@ -5,7 +5,6 @@ import '../../inventory/domain/product_model.dart';
 
 final salesRepositoryProvider = Provider((ref) => SalesRepository(FirebaseFirestore.instance, ref));
 
-// Helper class for Batch Sales
 class CartItem {
   final Product product;
   final int quantity;
@@ -26,11 +25,11 @@ class SalesRepository {
 
   SalesRepository(this._firestore, this._ref);
 
-  // 1. Single Product Sell (Wrapper)
   Future<void> sellProduct({
     required Product product,
     required String customerName,
     required String customerPhone,
+    required String customerAddress, // 👈 New Field
     required int quantity,
     required double discountPercent,
     required String paymentStatus,
@@ -42,15 +41,16 @@ class SalesRepository {
       items: [CartItem(product: product, quantity: quantity, discountPercent: discountPercent, finalPrice: total)],
       customerName: customerName,
       customerPhone: customerPhone,
+      customerAddress: customerAddress, // 👈 Pass it
       paymentStatus: paymentStatus,
     );
   }
 
-  // 2. Batch Sell (The New "Same Thing")
   Future<void> sellBatchProducts({
     required List<CartItem> items,
     required String customerName,
     required String customerPhone,
+    required String customerAddress, // 👈 New Field
     required String paymentStatus,
   }) async {
     final user = _ref.read(authServiceProvider).currentUser;
@@ -58,44 +58,40 @@ class SalesRepository {
 
     final batch = _firestore.batch();
     final timestamp = FieldValue.serverTimestamp();
-
-    // A. Create Master Invoice
     final invoiceRef = _firestore.collection('sales_invoices').doc();
 
-    // Calculate Grand Totals
     double grandTotalAmount = 0;
     double grandTotalProfit = 0;
 
     for (var item in items) {
-      // Validation
       if (item.product.currentStock < item.quantity) {
         throw Exception("Insufficient stock for ${item.product.name}");
       }
       grandTotalAmount += item.finalPrice;
-
       final totalBuyingPrice = item.product.buyingPrice * item.quantity;
       grandTotalProfit += (item.finalPrice - totalBuyingPrice);
     }
 
+    // A. Invoice Record
     batch.set(invoiceRef, {
       'type': 'INVOICE',
       'customerName': customerName,
       'customerPhone': customerPhone,
+      'customerAddress': customerAddress, // 👈 Save Address
       'totalAmount': grandTotalAmount,
-      'totalProfit': grandTotalProfit, // Admin only
+      'totalProfit': grandTotalProfit,
       'itemCount': items.length,
       'paymentStatus': paymentStatus,
       'soldBy': user.email,
       'timestamp': timestamp,
     });
 
-    // B. Process Individual Items
+    // B. Individual Sales
     for (var item in items) {
       final unitPrice = item.product.marketPrice - (item.product.marketPrice * (item.discountPercent / 100));
       final totalBuyingPrice = item.product.buyingPrice * item.quantity;
       final profit = item.finalPrice - totalBuyingPrice;
 
-      // 1. Create Sale Record
       final saleRef = _firestore.collection('sales').doc();
       batch.set(saleRef, {
         'invoiceId': invoiceRef.id,
@@ -105,6 +101,7 @@ class SalesRepository {
         'category': item.product.category,
         'customerName': customerName,
         'customerPhone': customerPhone,
+        'customerAddress': customerAddress, // 👈 Save Address
         'quantity': item.quantity,
         'mrp': item.product.marketPrice,
         'discountPercent': item.discountPercent,
@@ -116,14 +113,12 @@ class SalesRepository {
         'timestamp': timestamp,
       });
 
-      // 2. Decrease Stock
       final productRef = _firestore.collection('products').doc(item.product.id);
       batch.update(productRef, {
         'currentStock': FieldValue.increment(-item.quantity),
         'lastUpdated': timestamp,
       });
 
-      // 3. Log
       final logRef = _firestore.collection('inventory_logs').doc();
       batch.set(logRef, {
         'type': 'SELL',

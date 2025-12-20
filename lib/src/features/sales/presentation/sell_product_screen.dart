@@ -1,13 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../inventory/domain/product_model.dart';
-import '../../inventory/data/inventory_repository.dart'; // Needed for provider
+import '../../inventory/data/inventory_repository.dart';
 import '../data/sales_repository.dart';
 import 'pdf_generator.dart';
 
 class SellProductScreen extends ConsumerStatefulWidget {
   final Product product;
-  // We keep 'product' as the "initial" selection
   const SellProductScreen({super.key, required this.product});
 
   @override
@@ -17,9 +16,10 @@ class SellProductScreen extends ConsumerStatefulWidget {
 class _SellProductScreenState extends ConsumerState<SellProductScreen> {
   final _formKey = GlobalKey<FormState>();
 
-  // Customer Info (Global for Invoice)
+  // Customer Info
   final _customerNameController = TextEditingController();
   final _customerPhoneController = TextEditingController();
+  final _customerAddressController = TextEditingController(); // 👈 New Controller
 
   // Item Details
   Product? _selectedProduct;
@@ -28,11 +28,8 @@ class _SellProductScreenState extends ConsumerState<SellProductScreen> {
 
   String _paymentStatus = 'Cash';
   double _currentLineTotal = 0.0;
-
   bool _isLoading = false;
-  bool _isWholesale = false;
 
-  // The Cart
   final List<CartItem> _cartItems = [];
 
   @override
@@ -59,8 +56,6 @@ class _SellProductScreenState extends ConsumerState<SellProductScreen> {
     if (_selectedProduct == null) return;
 
     final qty = int.parse(_qtyController.text);
-
-    // Check Stock
     if (qty > _selectedProduct!.currentStock) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('Insufficient Stock! Max: ${_selectedProduct!.currentStock}'), backgroundColor: Colors.red),
@@ -77,20 +72,14 @@ class _SellProductScreenState extends ConsumerState<SellProductScreen> {
 
     setState(() {
       _cartItems.add(item);
-      // Reset Item fields
       _qtyController.text = '1';
-      // We keep discount same for convenience or reset it
       _calculateLineTotal();
     });
-
     ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Added to Cart"), duration: Duration(milliseconds: 600)));
   }
 
   Future<void> _processBatchSale() async {
-    if (_cartItems.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Cart is empty!")));
-      return;
-    }
+    if (_cartItems.isEmpty) return;
     if (_customerNameController.text.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Enter Customer Name")));
       return;
@@ -102,23 +91,24 @@ class _SellProductScreenState extends ConsumerState<SellProductScreen> {
         items: _cartItems,
         customerName: _customerNameController.text.trim(),
         customerPhone: _customerPhoneController.text.trim(),
+        customerAddress: _customerAddressController.text.trim(), // 👈 Pass Address
         paymentStatus: _paymentStatus,
       );
 
-      // Create copy for PDF
       final soldItems = List<CartItem>.from(_cartItems);
       final cName = _customerNameController.text;
       final cPhone = _customerPhoneController.text;
+      final cAddress = _customerAddressController.text; // 👈 Capture Address
       final payStatus = _paymentStatus;
 
-      // Clear UI
       if (mounted) {
         setState(() {
           _cartItems.clear();
           _customerNameController.clear();
           _customerPhoneController.clear();
+          _customerAddressController.clear();
         });
-        _showSuccessDialog(soldItems, cName, cPhone, payStatus);
+        _showSuccessDialog(soldItems, cName, cPhone, cAddress, payStatus);
       }
     } catch (e) {
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: $e')));
@@ -127,31 +117,35 @@ class _SellProductScreenState extends ConsumerState<SellProductScreen> {
     }
   }
 
-  void _showSuccessDialog(List<CartItem> items, String name, String phone, String status) {
+  void _showSuccessDialog(List<CartItem> items, String name, String phone, String address, String status) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     showDialog(
       context: context,
       barrierDismissible: false,
       builder: (ctx) => AlertDialog(
+        backgroundColor: isDark ? const Color(0xFF1E293B) : Colors.white,
         icon: const Icon(Icons.check_circle_rounded, color: Colors.green, size: 48),
-        title: const Text("Sale Successful"),
-        content: Text("${items.length} items sold.\nGenerate invoice now?"),
+        title: Text("Sale Successful", style: TextStyle(color: isDark ? Colors.white : Colors.black)),
+        content: Text("${items.length} items sold.\nGenerate invoice now?", style: TextStyle(color: isDark ? Colors.white : Colors.black87)),
         actions: [
           TextButton(
             onPressed: () {
               Navigator.pop(ctx);
               Navigator.pop(context);
             },
-            child: const Text("Close"),
+            child: Text("Close", style: TextStyle(color: isDark ? Colors.redAccent : Colors.grey)),
           ),
           FilledButton.icon(
             icon: const Icon(Icons.print_rounded),
             label: const Text("Print Invoice"),
+            style: FilledButton.styleFrom(backgroundColor: Colors.green, foregroundColor: Colors.white),
             onPressed: () {
               Navigator.pop(ctx);
               PdfGenerator.generateBatchInvoice(
                 items: items,
                 customerName: name,
                 customerPhone: phone,
+                customerAddress: address, // 👈 Generate PDF with Address
                 paymentStatus: status,
               );
               Navigator.pop(context);
@@ -164,10 +158,10 @@ class _SellProductScreenState extends ConsumerState<SellProductScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final inventoryAsync = ref.watch(inventoryStreamProvider); // Need to fetch all products for dropdown
+    final inventoryAsync = ref.watch(inventoryStreamProvider);
     final isDark = Theme.of(context).brightness == Brightness.dark;
+    final inputTextStyle = TextStyle(color: isDark ? Colors.white : Colors.black87);
 
-    // Calculate Grand Total of Cart
     double cartTotal = 0;
     for (var i in _cartItems) cartTotal += i.finalPrice;
 
@@ -180,15 +174,17 @@ class _SellProductScreenState extends ConsumerState<SellProductScreen> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // 1. CUSTOMER INFO (Global)
+              // 1. CUSTOMER INFO
               _SectionHeader(title: "Customer Info", icon: Icons.person),
               const SizedBox(height: 10),
+
               Row(
                 children: [
                   Expanded(
                     flex: 2,
                     child: TextFormField(
                       controller: _customerNameController,
+                      style: inputTextStyle,
                       decoration: _inputDecor("Customer Name", Icons.person_outline),
                       validator: (v) => v!.isEmpty ? 'Req' : null,
                     ),
@@ -197,11 +193,19 @@ class _SellProductScreenState extends ConsumerState<SellProductScreen> {
                   Expanded(
                     child: TextFormField(
                       controller: _customerPhoneController,
+                      style: inputTextStyle,
                       keyboardType: TextInputType.phone,
                       decoration: _inputDecor("Phone", Icons.phone),
                     ),
                   ),
                 ],
+              ),
+              const SizedBox(height: 10),
+              // 👈 NEW: Address Field
+              TextFormField(
+                controller: _customerAddressController,
+                style: inputTextStyle,
+                decoration: _inputDecor("Customer Address", Icons.location_on_outlined),
               ),
               const SizedBox(height: 20),
 
@@ -211,12 +215,12 @@ class _SellProductScreenState extends ConsumerState<SellProductScreen> {
                 decoration: BoxDecoration(
                   color: isDark ? const Color(0xFF1E293B) : Colors.blue.shade50,
                   borderRadius: BorderRadius.circular(16),
-                  border: Border.all(color: Colors.blue.withOpacity(0.3)),
+                  border: Border.all(color: isDark ? Colors.white10 : Colors.blue.withOpacity(0.3)),
                 ),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    const Text("Add Item to Cart", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                    Text("Add Item to Cart", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: isDark ? Colors.white : Colors.black87)),
                     const SizedBox(height: 12),
 
                     // Product Dropdown
@@ -227,7 +231,9 @@ class _SellProductScreenState extends ConsumerState<SellProductScreen> {
                           value: _selectedProduct != null && products.any((p) => p.id == _selectedProduct!.id)
                               ? products.firstWhere((p) => p.id == _selectedProduct!.id)
                               : null,
-                          hint: const Text("Select Product"),
+                          hint: Text("Select Product", style: TextStyle(color: isDark ? Colors.white60 : Colors.grey)),
+                          dropdownColor: isDark ? const Color(0xFF1E293B) : Colors.white,
+                          style: inputTextStyle, // White text
                           items: products.map((p) {
                             return DropdownMenuItem(
                               value: p,
@@ -235,7 +241,7 @@ class _SellProductScreenState extends ConsumerState<SellProductScreen> {
                                 "${p.model} - ${p.name} (Stock: ${p.currentStock})",
                                 overflow: TextOverflow.ellipsis,
                                 style: TextStyle(
-                                    color: p.currentStock == 0 ? Colors.red : null
+                                    color: p.currentStock == 0 ? Colors.redAccent : (isDark ? Colors.white : Colors.black87)
                                 ),
                               ),
                             );
@@ -250,7 +256,7 @@ class _SellProductScreenState extends ConsumerState<SellProductScreen> {
                         );
                       },
                       loading: () => const LinearProgressIndicator(),
-                      error: (e, s) => Text("Error loading products: $e"),
+                      error: (e, s) => Text("Error: $e"),
                     ),
                     const SizedBox(height: 10),
 
@@ -261,6 +267,7 @@ class _SellProductScreenState extends ConsumerState<SellProductScreen> {
                           child: TextFormField(
                             controller: _qtyController,
                             keyboardType: TextInputType.number,
+                            style: inputTextStyle,
                             decoration: _inputDecor("Qty"),
                             onChanged: (_) => _calculateLineTotal(),
                             validator: (v) => (int.tryParse(v ?? '0') ?? 0) <= 0 ? 'Invalid' : null,
@@ -271,6 +278,7 @@ class _SellProductScreenState extends ConsumerState<SellProductScreen> {
                           child: TextFormField(
                             controller: _discountController,
                             keyboardType: TextInputType.number,
+                            style: inputTextStyle,
                             decoration: _inputDecor("Disc %"),
                             onChanged: (_) => _calculateLineTotal(),
                           ),
@@ -285,14 +293,14 @@ class _SellProductScreenState extends ConsumerState<SellProductScreen> {
                       children: [
                         Text(
                             "Total: ৳${_currentLineTotal.toStringAsFixed(0)}",
-                            style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: Theme.of(context).primaryColor)
+                            style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: isDark ? Colors.greenAccent : Theme.of(context).primaryColor)
                         ),
                         ElevatedButton.icon(
                           onPressed: _addToCart,
                           icon: const Icon(Icons.add_shopping_cart, size: 18),
                           label: const Text("Add"),
                           style: ElevatedButton.styleFrom(
-                            backgroundColor: Theme.of(context).primaryColor,
+                            backgroundColor: isDark ? Colors.green : Theme.of(context).primaryColor,
                             foregroundColor: Colors.white,
                           ),
                         )
@@ -309,7 +317,7 @@ class _SellProductScreenState extends ConsumerState<SellProductScreen> {
               const SizedBox(height: 10),
 
               if (_cartItems.isEmpty)
-                const Center(child: Padding(padding: EdgeInsets.all(20), child: Text("Cart is empty"))),
+                Center(child: Padding(padding: const EdgeInsets.all(20), child: Text("Cart is empty", style: TextStyle(color: isDark ? Colors.white60 : Colors.grey)))),
 
               ListView.builder(
                 shrinkWrap: true,
@@ -318,21 +326,26 @@ class _SellProductScreenState extends ConsumerState<SellProductScreen> {
                 itemBuilder: (context, index) {
                   final item = _cartItems[index];
                   return Card(
+                    color: isDark ? const Color(0xFF1E293B) : Colors.white,
                     margin: const EdgeInsets.only(bottom: 8),
                     child: ListTile(
                       dense: true,
                       leading: CircleAvatar(
                         radius: 14,
-                        child: Text("${index + 1}", style: const TextStyle(fontSize: 12)),
+                        backgroundColor: isDark ? Colors.white10 : Colors.grey.shade300,
+                        child: Text("${index + 1}", style: TextStyle(fontSize: 12, color: isDark ? Colors.white : Colors.black)),
                       ),
-                      title: Text(item.product.model, style: const TextStyle(fontWeight: FontWeight.bold)),
-                      subtitle: Text("${item.quantity} x ৳${item.product.marketPrice} (-${item.discountPercent}%)"),
+                      title: Text(item.product.model, style: TextStyle(fontWeight: FontWeight.bold, color: isDark ? Colors.white : Colors.black87)),
+                      subtitle: Text(
+                          "${item.quantity} x ৳${item.product.marketPrice} (-${item.discountPercent}%)",
+                          style: TextStyle(color: isDark ? Colors.white70 : Colors.grey[700])
+                      ),
                       trailing: Row(
                         mainAxisSize: MainAxisSize.min,
                         children: [
-                          Text("৳${item.finalPrice.toStringAsFixed(0)}", style: const TextStyle(fontWeight: FontWeight.bold)),
+                          Text("৳${item.finalPrice.toStringAsFixed(0)}", style: TextStyle(fontWeight: FontWeight.bold, color: isDark ? Colors.greenAccent : Colors.black)),
                           IconButton(
-                            icon: const Icon(Icons.delete_outline, color: Colors.red, size: 20),
+                            icon: const Icon(Icons.delete_outline, color: Colors.redAccent, size: 20),
                             onPressed: () => setState(() => _cartItems.removeAt(index)),
                           ),
                         ],
@@ -347,7 +360,9 @@ class _SellProductScreenState extends ConsumerState<SellProductScreen> {
               // 4. CHECKOUT
               DropdownButtonFormField<String>(
                 value: _paymentStatus,
-                items: ['Cash', 'Due'].map((e) => DropdownMenuItem(value: e, child: Text(e))).toList(),
+                dropdownColor: isDark ? const Color(0xFF1E293B) : Colors.white,
+                style: inputTextStyle,
+                items: ['Cash', 'Due'].map((e) => DropdownMenuItem(value: e, child: Text(e, style: inputTextStyle))).toList(),
                 onChanged: (v) => setState(() => _paymentStatus = v!),
                 decoration: _inputDecor("Payment Type", Icons.payment),
               ),
@@ -358,6 +373,9 @@ class _SellProductScreenState extends ConsumerState<SellProductScreen> {
                 decoration: BoxDecoration(
                   color: isDark ? const Color(0xFF0F172A) : Colors.black,
                   borderRadius: BorderRadius.circular(16),
+                  boxShadow: [
+                    BoxShadow(color: isDark ? Colors.black45 : Colors.black26, blurRadius: 10, offset: const Offset(0, 4))
+                  ],
                 ),
                 child: Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -365,7 +383,7 @@ class _SellProductScreenState extends ConsumerState<SellProductScreen> {
                     const Text("Grand Total:", style: TextStyle(color: Colors.white70, fontSize: 16)),
                     Text(
                       "৳${cartTotal.toStringAsFixed(0)}",
-                      style: const TextStyle(color: Colors.white, fontSize: 24, fontWeight: FontWeight.bold),
+                      style: const TextStyle(color: Colors.greenAccent, fontSize: 24, fontWeight: FontWeight.bold),
                     ),
                   ],
                 ),
@@ -400,7 +418,9 @@ class _SellProductScreenState extends ConsumerState<SellProductScreen> {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     return InputDecoration(
       labelText: label,
-      prefixIcon: icon != null ? Icon(icon, size: 20) : null,
+      // Yellow Labels in Dark Mode
+      labelStyle: TextStyle(color: isDark ? Colors.yellowAccent : Colors.grey[700]),
+      prefixIcon: icon != null ? Icon(icon, size: 20, color: isDark ? Colors.white60 : Colors.grey) : null,
       filled: true,
       fillColor: isDark ? const Color(0xFF1E293B) : Colors.grey[50],
       border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
@@ -416,11 +436,12 @@ class _SectionHeader extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     return Row(
       children: [
-        Icon(icon, size: 20, color: Theme.of(context).primaryColor),
+        Icon(icon, size: 20, color: isDark ? Colors.yellowAccent : Theme.of(context).primaryColor),
         const SizedBox(width: 8),
-        Text(title, style: TextStyle(color: Theme.of(context).primaryColor, fontWeight: FontWeight.bold, fontSize: 16)),
+        Text(title, style: TextStyle(color: isDark ? Colors.yellowAccent : Theme.of(context).primaryColor, fontWeight: FontWeight.bold, fontSize: 16)),
       ],
     );
   }
