@@ -34,17 +34,19 @@ class InventoryRepository {
         commissionPercent: commission,
         buyingPrice: mrp - (mrp * (commission / 100)),
         currentStock: quantity,
+        lastUpdated: DateTime.now(),
       )
     ]);
   }
 
-  // Batch Receive Logic
+  // 👇 UPDATED: Batch Receive Logic with Color & Date Checks
   Future<void> receiveBatchProducts(List<Product> newProducts) async {
     final user = _ref.read(authServiceProvider).currentUser;
     if (user == null) throw Exception("User not logged in");
 
     final batch = _firestore.batch();
 
+    // Create a Master Log for this batch operation
     final masterLogRef = _firestore.collection('inventory_batches').doc();
     batch.set(masterLogRef, {
       'type': 'INWARD_CHALLAN',
@@ -54,42 +56,75 @@ class InventoryRepository {
     });
 
     for (var product in newProducts) {
+      // 1. Fetch ALL products with this model (Removed limit(1))
+      // We need to check all variants (Colors/Dates) to find the right one to merge.
       final querySnapshot = await _firestore
           .collection('products')
           .where('model', isEqualTo: product.model)
-          .limit(1)
           .get();
 
-      DocumentReference productRef;
+      DocumentReference? targetProductRef;
       int oldStock = 0;
 
+      // 2. Logic: Find if this EXACT variant exists (Same Color AND Same Date)
       if (querySnapshot.docs.isNotEmpty) {
-        final doc = querySnapshot.docs.first;
-        productRef = doc.reference;
-        oldStock = (doc['currentStock'] as num).toInt();
+        for (var doc in querySnapshot.docs) {
+          final data = doc.data();
 
-        batch.update(productRef, {
+          // A. Check Color Match
+          final String dbColor = (data['color'] ?? '').toString().trim().toLowerCase();
+          final String newColor = product.color.trim().toLowerCase();
+          if (dbColor != newColor) continue; // Colors differ? Treat as new item.
+
+          // B. Check Date Match (Year-Month-Day)
+          final Timestamp? dbTs = data['lastUpdated'] as Timestamp?;
+          if (dbTs != null) {
+            final dbDate = dbTs.toDate();
+            final newDate = product.lastUpdated!; // From input
+
+            final isSameDay = dbDate.year == newDate.year &&
+                dbDate.month == newDate.month &&
+                dbDate.day == newDate.day;
+
+            if (isSameDay) {
+              // FOUND IT! Same Model, Same Color, Same Date.
+              // We will update this specific document.
+              targetProductRef = doc.reference;
+              oldStock = (data['currentStock'] as num).toInt();
+              break;
+            }
+          }
+        }
+      }
+
+      // 3. Prepare Batch Operation
+      if (targetProductRef != null) {
+        // UPDATE existing (Merge stock)
+        batch.update(targetProductRef, {
           'currentStock': FieldValue.increment(product.currentStock),
           'marketPrice': product.marketPrice,
           'commissionPercent': product.commissionPercent,
           'buyingPrice': product.buyingPrice,
-          'lastUpdated': FieldValue.serverTimestamp(),
+          // We don't change 'lastUpdated' to keep it anchored to the original date
         });
       } else {
-        productRef = _firestore.collection('products').doc();
-        batch.set(productRef, product.toMap());
+        // CREATE new entry (New Date or New Color)
+        targetProductRef = _firestore.collection('products').doc();
+        batch.set(targetProductRef, product.toMap());
       }
 
+      // 4. Audit Log
       final logRef = _firestore.collection('inventory_logs').doc();
       batch.set(logRef, {
         'batchId': masterLogRef.id,
         'type': 'RECEIVE',
-        'productId': productRef.id,
+        'productId': targetProductRef.id,
         'productModel': product.model,
         'productCategory': product.category,
         'quantityAdded': product.currentStock,
         'oldStock': oldStock,
         'newStock': oldStock + product.currentStock,
+        'variant': "${product.color} | ${product.lastUpdated}", // Useful for debugging
         'receivedBy': user.email,
         'timestamp': FieldValue.serverTimestamp(),
       });
@@ -98,17 +133,14 @@ class InventoryRepository {
     await batch.commit();
   }
 
-  // 👇 4. NEW: Update Product (ACID)
+  // Update Product (ACID)
   Future<void> updateProduct(Product product) async {
     final user = _ref.read(authServiceProvider).currentUser;
-    // Batch ensures Atomicity: The update and the log happen together.
     final batch = _firestore.batch();
 
-    // A. Update the Product Document
     final docRef = _firestore.collection('products').doc(product.id);
     batch.update(docRef, product.toMap());
 
-    // B. Create Audit Log
     final logRef = _firestore.collection('inventory_logs').doc();
     batch.set(logRef, {
       'type': 'UPDATE',
@@ -122,16 +154,14 @@ class InventoryRepository {
     await batch.commit();
   }
 
-  // 👇 5. NEW: Delete Product (ACID)
+  // Delete Product (ACID)
   Future<void> deleteProduct(String productId, String model) async {
     final user = _ref.read(authServiceProvider).currentUser;
     final batch = _firestore.batch();
 
-    // A. Delete the Product Document
     final docRef = _firestore.collection('products').doc(productId);
     batch.delete(docRef);
 
-    // B. Create Audit Log (So we know who deleted what)
     final logRef = _firestore.collection('inventory_logs').doc();
     batch.set(logRef, {
       'type': 'DELETE',
