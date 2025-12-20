@@ -42,6 +42,7 @@ class ExpenseRepository {
     await _firestore.collection('expenses').doc(id).delete();
   }
 
+
   // Get Expenses (Ordered by Date Newest First)
   Stream<List<Expense>> watchExpenses() {
     return _firestore
@@ -54,4 +55,27 @@ class ExpenseRepository {
       }).toList();
     });
   }
+
+  // ... existing methods ...
+
+  // Update Existing Expense
+  Future<void> updateExpense({
+    required String id,
+    required String category,
+    required double amount,
+    required String note,
+    required DateTime date,
+  }) async {
+    final user = _ref.read(authServiceProvider).currentUser;
+
+    await _firestore.collection('expenses').doc(id).update({
+      'category': category,
+      'amount': amount,
+      'note': note,
+      'date': Timestamp.fromDate(date),
+      'lastUpdatedBy': user?.email ?? 'Admin',
+      'lastUpdated': FieldValue.serverTimestamp(),
+    });
+  }
 }
+
