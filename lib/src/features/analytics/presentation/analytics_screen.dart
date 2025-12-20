@@ -134,8 +134,9 @@ class AnalyticsScreen extends ConsumerWidget {
                           child: _MetricCard(
                             title: "Net Profit",
                             value: "৳${totalProfit.toStringAsFixed(0)}",
-                            color: Colors.green,
-                            icon: Icons.trending_up,
+                            // 👇 UPDATED: Red if negative, Green otherwise
+                            color: totalProfit < 0 ? Colors.red : Colors.green,
+                            icon: totalProfit < 0 ? Icons.trending_down : Icons.trending_up,
                             isHighlighted: true,
                           ),
                         ),
