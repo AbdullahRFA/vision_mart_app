@@ -74,9 +74,12 @@ class _InventoryScreenState extends ConsumerState<InventoryScreen> {
             padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
             child: TextField(
               controller: _searchController,
+              // White text in Dark Mode
+              style: TextStyle(color: isDark ? Colors.white : Colors.black87),
               decoration: InputDecoration(
                 hintText: 'Search Model or Name...',
-                prefixIcon: const Icon(Icons.search_rounded),
+                hintStyle: TextStyle(color: isDark ? Colors.white54 : Colors.grey),
+                prefixIcon: Icon(Icons.search_rounded, color: isDark ? Colors.white54 : Colors.grey),
                 filled: true,
                 fillColor: isDark ? const Color(0xFF1E293B) : Colors.white,
                 border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
@@ -103,7 +106,10 @@ class _InventoryScreenState extends ConsumerState<InventoryScreen> {
                     backgroundColor: isDark ? const Color(0xFF1E293B) : Colors.white,
                     selectedColor: isLowStock ? Colors.red.withOpacity(0.2) : Theme.of(context).primaryColor.withOpacity(0.2),
                     labelStyle: TextStyle(
-                      color: isSelected ? (isLowStock ? Colors.red : Theme.of(context).primaryColor) : (isDark ? Colors.white60 : Colors.grey[700]),
+                      // Yellow/White text for better visibility in filters
+                      color: isSelected
+                          ? (isLowStock ? Colors.red : (isDark ? Colors.yellowAccent : Theme.of(context).primaryColor))
+                          : (isDark ? Colors.white70 : Colors.grey[700]),
                       fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
                     ),
                     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
@@ -131,15 +137,13 @@ class _InventoryScreenState extends ConsumerState<InventoryScreen> {
                 }).toList();
 
                 if (filteredProducts.isEmpty) {
-                  return Center(child: Text("No products found", style: TextStyle(color: Colors.grey.withOpacity(0.8))));
+                  return Center(child: Text("No products found", style: TextStyle(color: isDark ? Colors.white60 : Colors.grey)));
                 }
 
-                // SORT: Newest date first
                 filteredProducts.sort((a, b) =>
                     (b.lastUpdated ?? DateTime(0)).compareTo(a.lastUpdated ?? DateTime(0))
                 );
 
-                // GROUP: By Date
                 final grouped = _groupProducts(filteredProducts);
 
                 return ListView(
@@ -158,7 +162,7 @@ class _InventoryScreenState extends ConsumerState<InventoryScreen> {
                             style: TextStyle(
                               fontSize: 14,
                               fontWeight: FontWeight.bold,
-                              color: isDark ? Colors.white54 : Colors.grey[700],
+                              color: isDark ? Colors.white70 : Colors.grey[700],
                               letterSpacing: 1,
                             ),
                           ),
@@ -182,7 +186,6 @@ class _InventoryScreenState extends ConsumerState<InventoryScreen> {
     );
   }
 
-  // 👇 Helper: Group products by "Stored Date" or "Updated Date"
   Map<String, List<Product>> _groupProducts(List<Product> products) {
     final grouped = <String, List<Product>>{};
     final now = DateTime.now();
@@ -225,7 +228,8 @@ class _ProductCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final isLowStock = product.currentStock < 5;
-    final stockColor = isLowStock ? Colors.red : Colors.green;
+    // GREEN for safe stock, RED for low stock
+    final stockColor = isLowStock ? Colors.redAccent : Colors.greenAccent;
     final isDark = Theme.of(context).brightness == Brightness.dark;
 
     IconData getIconForCategory(String cat) {
@@ -279,16 +283,21 @@ class _ProductCard extends StatelessWidget {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(product.model, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                      // 1. WHITE: Model Name
+                      Text(product.model, style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: isDark ? Colors.white : Colors.black87)),
                       const SizedBox(height: 4),
-                      Text("${product.name}", style: TextStyle(fontSize: 12, color: isDark ? Colors.white60 : Colors.grey[600]), maxLines: 1, overflow: TextOverflow.ellipsis),
+                      // 2. YELLOW: Product Name
+                      Text("${product.name}", style: TextStyle(fontSize: 12, color: isDark ? Colors.yellowAccent : Colors.grey[600]), maxLines: 1, overflow: TextOverflow.ellipsis),
+
                       if (product.color.isNotEmpty)
                         Padding(
                           padding: const EdgeInsets.only(top: 2),
-                          child: Text("Color: ${product.color}", style: TextStyle(fontSize: 11, color: isDark ? Colors.white38 : Colors.grey[500])),
+                          child: Text("Color: ${product.color}", style: TextStyle(fontSize: 11, color: isDark ? Colors.white60 : Colors.grey[500])),
                         ),
                       const SizedBox(height: 6),
-                      Text("৳${product.marketPrice.toStringAsFixed(0)}", style: TextStyle(color: Theme.of(context).primaryColor, fontWeight: FontWeight.bold, fontSize: 14)),
+
+                      // 3. GREEN: Price
+                      Text("৳${product.marketPrice.toStringAsFixed(0)}", style: TextStyle(color: isDark ? Colors.greenAccent : Theme.of(context).primaryColor, fontWeight: FontWeight.bold, fontSize: 14)),
                     ],
                   ),
                 ),
@@ -301,14 +310,16 @@ class _ProductCard extends StatelessWidget {
                         color: stockColor.withOpacity(0.1),
                         borderRadius: BorderRadius.circular(8),
                       ),
+                      // 3 & 4. GREEN or RED (Stock)
                       child: Text("${product.currentStock} Units", style: TextStyle(color: stockColor, fontWeight: FontWeight.bold, fontSize: 10)),
                     ),
                     const SizedBox(height: 8),
                     Row(
                       children: [
-                        InkWell(onTap: onEdit, child: Icon(Icons.edit, size: 20, color: Colors.grey[600])),
+                        InkWell(onTap: onEdit, child: Icon(Icons.edit, size: 20, color: isDark ? Colors.blue[200] : Colors.grey[600])),
                         const SizedBox(width: 12),
-                        InkWell(onTap: onDelete, child: Icon(Icons.delete, size: 20, color: Colors.red[300])),
+                        // 4. RED: Delete Icon
+                        InkWell(onTap: onDelete, child: Icon(Icons.delete, size: 20, color: Colors.redAccent)),
                       ],
                     )
                   ],
@@ -322,7 +333,6 @@ class _ProductCard extends StatelessWidget {
   }
 }
 
-// 👇 UPDATED EDIT DIALOG
 class _EditProductDialog extends ConsumerStatefulWidget {
   final Product product;
   const _EditProductDialog({required this.product});
@@ -338,7 +348,7 @@ class _EditProductDialogState extends ConsumerState<_EditProductDialog> {
   late TextEditingController _commCtrl;
   late TextEditingController _capacityCtrl;
   late TextEditingController _colorCtrl;
-  late TextEditingController _stockCtrl; // 👈 1. Added Stock Controller
+  late TextEditingController _stockCtrl;
 
   @override
   void initState() {
@@ -348,13 +358,37 @@ class _EditProductDialogState extends ConsumerState<_EditProductDialog> {
     _commCtrl = TextEditingController(text: widget.product.commissionPercent.toString());
     _capacityCtrl = TextEditingController(text: widget.product.capacity);
     _colorCtrl = TextEditingController(text: widget.product.color);
-    _stockCtrl = TextEditingController(text: widget.product.currentStock.toString()); // 👈 Init Stock
+    _stockCtrl = TextEditingController(text: widget.product.currentStock.toString());
+  }
+
+  InputDecoration _dialogInputDecor(String label, {Widget? suffixIcon}) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    return InputDecoration(
+      labelText: label,
+      // 2. YELLOW: Labels in Dark Mode
+      labelStyle: TextStyle(color: isDark ? Colors.yellowAccent : Colors.grey[600]),
+      suffixIcon: suffixIcon,
+      enabledBorder: OutlineInputBorder(
+        borderSide: BorderSide(color: isDark ? Colors.white24 : Colors.grey),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      focusedBorder: OutlineInputBorder(
+        borderSide: BorderSide(color: Theme.of(context).primaryColor, width: 2),
+        borderRadius: BorderRadius.circular(8),
+      ),
+    );
   }
 
   @override
   Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    // 1. WHITE: Input Text
+    final inputStyle = TextStyle(color: isDark ? Colors.white : Colors.black87);
+
     return AlertDialog(
-      title: Text("Edit ${widget.product.model}"),
+      backgroundColor: isDark ? const Color(0xFF1E293B) : Colors.white,
+      // 1. WHITE: Title
+      title: Text("Edit ${widget.product.model}", style: TextStyle(color: isDark ? Colors.white : Colors.black87)),
       content: SingleChildScrollView(
         child: Form(
           key: _formKey,
@@ -363,36 +397,32 @@ class _EditProductDialogState extends ConsumerState<_EditProductDialog> {
             children: [
               TextFormField(
                 controller: _nameCtrl,
-                decoration: const InputDecoration(labelText: "Product Name"),
+                style: inputStyle,
+                decoration: _dialogInputDecor("Product Name"),
                 validator: (v) => v!.isEmpty ? "Required" : null,
               ),
               const SizedBox(height: 10),
-              // Grouped Capacity & Color
               Row(
                 children: [
-                  Expanded(child: TextFormField(controller: _capacityCtrl, decoration: const InputDecoration(labelText: "Capacity/Size"))),
+                  Expanded(child: TextFormField(controller: _capacityCtrl, style: inputStyle, decoration: _dialogInputDecor("Capacity/Size"))),
                   const SizedBox(width: 10),
-                  Expanded(child: TextFormField(controller: _colorCtrl, decoration: const InputDecoration(labelText: "Color (Opt)"))),
+                  Expanded(child: TextFormField(controller: _colorCtrl, style: inputStyle, decoration: _dialogInputDecor("Color (Opt)"))),
                 ],
               ),
               const SizedBox(height: 10),
-              // Grouped Stock (Editable)
               TextFormField(
                 controller: _stockCtrl,
                 keyboardType: TextInputType.number,
-                decoration: const InputDecoration(
-                  labelText: "Current Stock",
-                  suffixIcon: Icon(Icons.inventory_2_outlined),
-                ),
+                style: inputStyle,
+                decoration: _dialogInputDecor("Current Stock", suffixIcon: Icon(Icons.inventory_2_outlined, color: isDark ? Colors.white60 : Colors.grey)),
                 validator: (v) => v!.isEmpty ? "Required" : null,
               ),
               const SizedBox(height: 10),
-              // Grouped Pricing
               Row(
                 children: [
-                  Expanded(child: TextFormField(controller: _mrpCtrl, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: "MRP"), validator: (v) => v!.isEmpty ? "Required" : null)),
+                  Expanded(child: TextFormField(controller: _mrpCtrl, keyboardType: TextInputType.number, style: inputStyle, decoration: _dialogInputDecor("MRP"), validator: (v) => v!.isEmpty ? "Required" : null)),
                   const SizedBox(width: 10),
-                  Expanded(child: TextFormField(controller: _commCtrl, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: "Comm %"), validator: (v) => v!.isEmpty ? "Required" : null)),
+                  Expanded(child: TextFormField(controller: _commCtrl, keyboardType: TextInputType.number, style: inputStyle, decoration: _dialogInputDecor("Comm %"), validator: (v) => v!.isEmpty ? "Required" : null)),
                 ],
               ),
             ],
@@ -400,7 +430,11 @@ class _EditProductDialogState extends ConsumerState<_EditProductDialog> {
         ),
       ),
       actions: [
-        TextButton(onPressed: () => Navigator.pop(context), child: const Text("Cancel")),
+        TextButton(
+            onPressed: () => Navigator.pop(context),
+            // 4. RED: Cancel Button
+            child: Text("Cancel", style: TextStyle(color: isDark ? Colors.redAccent : Colors.grey[700]))
+        ),
         ElevatedButton(
           onPressed: () async {
             if (!_formKey.currentState!.validate()) return;
@@ -409,27 +443,22 @@ class _EditProductDialogState extends ConsumerState<_EditProductDialog> {
             final comm = double.parse(_commCtrl.text);
             final buyingPrice = mrp - (mrp * (comm / 100));
 
-            // 👈 2. Check for Stock Increase
             final newStock = int.parse(_stockCtrl.text);
             final isStockIncreased = newStock > widget.product.currentStock;
-
-            // 👈 3. Determine Date: If stock increased, use Now, else keep old date.
-            final dateToSave = isStockIncreased
-                ? DateTime.now()
-                : widget.product.lastUpdated;
+            final dateToSave = isStockIncreased ? DateTime.now() : widget.product.lastUpdated;
 
             final updatedProduct = Product(
               id: widget.product.id,
               model: widget.product.model,
               category: widget.product.category,
-              currentStock: newStock, // Save new stock
+              currentStock: newStock,
               name: _nameCtrl.text.trim(),
               capacity: _capacityCtrl.text.trim(),
               color: _colorCtrl.text.trim(),
               marketPrice: mrp,
               commissionPercent: comm,
               buyingPrice: buyingPrice,
-              lastUpdated: dateToSave, // Save logic
+              lastUpdated: dateToSave,
             );
 
             try {
@@ -442,6 +471,7 @@ class _EditProductDialogState extends ConsumerState<_EditProductDialog> {
               if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Error: $e")));
             }
           },
+          // Green Background (Standard for Save)
           child: const Text("Save Changes"),
         )
       ],
