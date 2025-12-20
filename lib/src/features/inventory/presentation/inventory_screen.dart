@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:intl/intl.dart';
 import '../data/inventory_repository.dart';
 import '../domain/product_model.dart';
 import '../../sales/presentation/sell_product_screen.dart';
@@ -16,20 +17,11 @@ class _InventoryScreenState extends ConsumerState<InventoryScreen> {
   String _searchQuery = "";
   String _selectedCategory = "All";
 
-  // Vision Electronics Categories
   final List<String> _categories = [
-    "All",
-    "Low Stock",
-    "Television",
-    "Refrigerator & Freezer",
-    "Air Conditioner",
-    "Washing Machine",
-    "Fan & Air Cooling",
-    "Kitchen Appliance",
-    "Small Home Appliance",
-    "Audio & Multimedia",
-    "Security & Smart Device",
-    "Accessories & Digital",
+    "All", "Low Stock", "Television", "Refrigerator & Freezer",
+    "Air Conditioner", "Washing Machine", "Fan & Air Cooling",
+    "Kitchen Appliance", "Small Home Appliance", "Audio & Multimedia",
+    "Security & Smart Device", "Accessories & Digital",
   ];
 
   @override
@@ -40,7 +32,6 @@ class _InventoryScreenState extends ConsumerState<InventoryScreen> {
     });
   }
 
-  // 👇 Edit Logic
   void _showEditDialog(Product product) {
     showDialog(
       context: context,
@@ -48,25 +39,19 @@ class _InventoryScreenState extends ConsumerState<InventoryScreen> {
     );
   }
 
-  // 👇 Delete Logic
   void _confirmDelete(Product product) {
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
         title: const Text("Delete Product?"),
-        content: Text("Are you sure you want to delete ${product.model}?\nThis action cannot be undone."),
+        content: Text("Are you sure you want to delete ${product.model}?"),
         actions: [
           TextButton(onPressed: () => Navigator.pop(ctx), child: const Text("Cancel")),
           ElevatedButton(
             style: ElevatedButton.styleFrom(backgroundColor: Colors.red, foregroundColor: Colors.white),
             onPressed: () async {
               Navigator.pop(ctx);
-              try {
-                await ref.read(inventoryRepositoryProvider).deleteProduct(product.id, product.model);
-                if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Product Deleted")));
-              } catch (e) {
-                if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Error: $e")));
-              }
+              await ref.read(inventoryRepositoryProvider).deleteProduct(product.id, product.model);
             },
             child: const Text("Delete"),
           ),
@@ -94,10 +79,7 @@ class _InventoryScreenState extends ConsumerState<InventoryScreen> {
                 prefixIcon: const Icon(Icons.search_rounded),
                 filled: true,
                 fillColor: isDark ? const Color(0xFF1E293B) : Colors.white,
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(12),
-                  borderSide: BorderSide.none,
-                ),
+                border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
                 contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
               ),
             ),
@@ -111,7 +93,6 @@ class _InventoryScreenState extends ConsumerState<InventoryScreen> {
               children: _categories.map((category) {
                 final isSelected = _selectedCategory == category;
                 final isLowStock = category == "Low Stock";
-
                 return Padding(
                   padding: const EdgeInsets.only(right: 8.0),
                   child: FilterChip(
@@ -120,19 +101,13 @@ class _InventoryScreenState extends ConsumerState<InventoryScreen> {
                     showCheckmark: false,
                     side: BorderSide.none,
                     backgroundColor: isDark ? const Color(0xFF1E293B) : Colors.white,
-                    selectedColor: isLowStock
-                        ? Colors.red.withOpacity(0.2)
-                        : Theme.of(context).primaryColor.withOpacity(0.2),
+                    selectedColor: isLowStock ? Colors.red.withOpacity(0.2) : Theme.of(context).primaryColor.withOpacity(0.2),
                     labelStyle: TextStyle(
-                      color: isSelected
-                          ? (isLowStock ? Colors.red : Theme.of(context).primaryColor)
-                          : (isDark ? Colors.white60 : Colors.grey[700]),
+                      color: isSelected ? (isLowStock ? Colors.red : Theme.of(context).primaryColor) : (isDark ? Colors.white60 : Colors.grey[700]),
                       fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
                     ),
                     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-                    onSelected: (bool selected) {
-                      if (selected) setState(() => _selectedCategory = category);
-                    },
+                    onSelected: (bool selected) => selected ? setState(() => _selectedCategory = category) : null,
                   ),
                 );
               }).toList(),
@@ -141,7 +116,7 @@ class _InventoryScreenState extends ConsumerState<InventoryScreen> {
 
           const SizedBox(height: 10),
 
-          // 3. PRODUCT LIST
+          // 3. PRODUCT LIST (Grouped)
           Expanded(
             child: inventoryAsyncValue.when(
               data: (products) {
@@ -149,35 +124,53 @@ class _InventoryScreenState extends ConsumerState<InventoryScreen> {
                   final matchesSearch = p.name.toLowerCase().contains(_searchQuery) ||
                       p.model.toLowerCase().contains(_searchQuery);
                   if (!matchesSearch) return false;
-
                   if (_selectedCategory == "All") return true;
                   if (_selectedCategory == "Low Stock") return p.currentStock < 5;
-
                   return p.category.toLowerCase().contains(_selectedCategory.toLowerCase()) ||
                       _selectedCategory.toLowerCase().contains(p.category.toLowerCase());
                 }).toList();
 
                 if (filteredProducts.isEmpty) {
-                  return Center(
-                    child: Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Icon(Icons.inventory_2_outlined, size: 80, color: Colors.grey.withOpacity(0.3)),
-                        const SizedBox(height: 16),
-                        Text("No products found", style: TextStyle(color: Colors.grey.withOpacity(0.8), fontSize: 16)),
-                      ],
-                    ),
-                  );
+                  return Center(child: Text("No products found", style: TextStyle(color: Colors.grey.withOpacity(0.8))));
                 }
 
-                return ListView.builder(
+                // SORT: Newest date first
+                filteredProducts.sort((a, b) =>
+                    (b.lastUpdated ?? DateTime(0)).compareTo(a.lastUpdated ?? DateTime(0))
+                );
+
+                // GROUP: By Date
+                final grouped = _groupProducts(filteredProducts);
+
+                return ListView(
                   padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                  itemCount: filteredProducts.length,
-                  itemBuilder: (context, index) => _ProductCard(
-                    product: filteredProducts[index],
-                    onEdit: () => _showEditDialog(filteredProducts[index]),
-                    onDelete: () => _confirmDelete(filteredProducts[index]),
-                  ),
+                  children: grouped.entries.map((entry) {
+                    final header = entry.key;
+                    final items = entry.value;
+
+                    return Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Padding(
+                          padding: const EdgeInsets.symmetric(vertical: 12.0, horizontal: 4),
+                          child: Text(
+                            header,
+                            style: TextStyle(
+                              fontSize: 14,
+                              fontWeight: FontWeight.bold,
+                              color: isDark ? Colors.white54 : Colors.grey[700],
+                              letterSpacing: 1,
+                            ),
+                          ),
+                        ),
+                        ...items.map((product) => _ProductCard(
+                          product: product,
+                          onEdit: () => _showEditDialog(product),
+                          onDelete: () => _confirmDelete(product),
+                        )),
+                      ],
+                    );
+                  }).toList(),
                 );
               },
               loading: () => const Center(child: CircularProgressIndicator()),
@@ -188,9 +181,40 @@ class _InventoryScreenState extends ConsumerState<InventoryScreen> {
       ),
     );
   }
+
+  // 👇 Helper: Group products by "Stored Date" or "Updated Date"
+  Map<String, List<Product>> _groupProducts(List<Product> products) {
+    final grouped = <String, List<Product>>{};
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    final yesterday = today.subtract(const Duration(days: 1));
+
+    for (var p in products) {
+      if (p.lastUpdated == null) {
+        if (grouped['Unknown Date'] == null) grouped['Unknown Date'] = [];
+        grouped['Unknown Date']!.add(p);
+        continue;
+      }
+
+      final date = p.lastUpdated!;
+      final checkDate = DateTime(date.year, date.month, date.day);
+
+      String header;
+      if (checkDate == today) {
+        header = "Today (New or Updated Stock)";
+      } else if (checkDate == yesterday) {
+        header = "Yesterday";
+      } else {
+        header = DateFormat('dd MMM yyyy').format(date);
+      }
+
+      if (grouped[header] == null) grouped[header] = [];
+      grouped[header]!.add(p);
+    }
+    return grouped;
+  }
 }
 
-// 👇 Updated Product Card with Actions
 class _ProductCard extends StatelessWidget {
   final Product product;
   final VoidCallback? onEdit;
@@ -235,16 +259,12 @@ class _ProductCard extends StatelessWidget {
         child: InkWell(
           borderRadius: BorderRadius.circular(16),
           onTap: () {
-            Navigator.push(
-              context,
-              MaterialPageRoute(builder: (_) => SellProductScreen(product: product)),
-            );
+            Navigator.push(context, MaterialPageRoute(builder: (_) => SellProductScreen(product: product)));
           },
           child: Padding(
             padding: const EdgeInsets.all(16),
             child: Row(
               children: [
-                // Icon
                 Container(
                   width: 50,
                   height: 50,
@@ -255,8 +275,6 @@ class _ProductCard extends StatelessWidget {
                   child: Icon(getIconForCategory(product.category), color: Theme.of(context).primaryColor),
                 ),
                 const SizedBox(width: 16),
-
-                // Info
                 Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
@@ -264,17 +282,19 @@ class _ProductCard extends StatelessWidget {
                       Text(product.model, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
                       const SizedBox(height: 4),
                       Text("${product.name}", style: TextStyle(fontSize: 12, color: isDark ? Colors.white60 : Colors.grey[600]), maxLines: 1, overflow: TextOverflow.ellipsis),
+                      if (product.color.isNotEmpty)
+                        Padding(
+                          padding: const EdgeInsets.only(top: 2),
+                          child: Text("Color: ${product.color}", style: TextStyle(fontSize: 11, color: isDark ? Colors.white38 : Colors.grey[500])),
+                        ),
                       const SizedBox(height: 6),
                       Text("৳${product.marketPrice.toStringAsFixed(0)}", style: TextStyle(color: Theme.of(context).primaryColor, fontWeight: FontWeight.bold, fontSize: 14)),
                     ],
                   ),
                 ),
-
-                // Stock & Actions
                 Column(
                   crossAxisAlignment: CrossAxisAlignment.end,
                   children: [
-                    // Stock Badge
                     Container(
                       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                       decoration: BoxDecoration(
@@ -284,19 +304,11 @@ class _ProductCard extends StatelessWidget {
                       child: Text("${product.currentStock} Units", style: TextStyle(color: stockColor, fontWeight: FontWeight.bold, fontSize: 10)),
                     ),
                     const SizedBox(height: 8),
-
-                    // Edit/Delete Menu
                     Row(
                       children: [
-                        InkWell(
-                          onTap: onEdit,
-                          child: Icon(Icons.edit, size: 20, color: Colors.grey[600]),
-                        ),
+                        InkWell(onTap: onEdit, child: Icon(Icons.edit, size: 20, color: Colors.grey[600])),
                         const SizedBox(width: 12),
-                        InkWell(
-                          onTap: onDelete,
-                          child: Icon(Icons.delete, size: 20, color: Colors.red[300]),
-                        ),
+                        InkWell(onTap: onDelete, child: Icon(Icons.delete, size: 20, color: Colors.red[300])),
                       ],
                     )
                   ],
@@ -310,7 +322,7 @@ class _ProductCard extends StatelessWidget {
   }
 }
 
-// 👇 Internal Edit Dialog Widget
+// 👇 UPDATED EDIT DIALOG
 class _EditProductDialog extends ConsumerStatefulWidget {
   final Product product;
   const _EditProductDialog({required this.product});
@@ -325,6 +337,8 @@ class _EditProductDialogState extends ConsumerState<_EditProductDialog> {
   late TextEditingController _mrpCtrl;
   late TextEditingController _commCtrl;
   late TextEditingController _capacityCtrl;
+  late TextEditingController _colorCtrl;
+  late TextEditingController _stockCtrl; // 👈 1. Added Stock Controller
 
   @override
   void initState() {
@@ -333,6 +347,8 @@ class _EditProductDialogState extends ConsumerState<_EditProductDialog> {
     _mrpCtrl = TextEditingController(text: widget.product.marketPrice.toString());
     _commCtrl = TextEditingController(text: widget.product.commissionPercent.toString());
     _capacityCtrl = TextEditingController(text: widget.product.capacity);
+    _colorCtrl = TextEditingController(text: widget.product.color);
+    _stockCtrl = TextEditingController(text: widget.product.currentStock.toString()); // 👈 Init Stock
   }
 
   @override
@@ -351,30 +367,32 @@ class _EditProductDialogState extends ConsumerState<_EditProductDialog> {
                 validator: (v) => v!.isEmpty ? "Required" : null,
               ),
               const SizedBox(height: 10),
-              TextFormField(
-                controller: _capacityCtrl,
-                decoration: const InputDecoration(labelText: "Capacity/Size"),
-              ),
-              const SizedBox(height: 10),
+              // Grouped Capacity & Color
               Row(
                 children: [
-                  Expanded(
-                    child: TextFormField(
-                      controller: _mrpCtrl,
-                      keyboardType: TextInputType.number,
-                      decoration: const InputDecoration(labelText: "MRP"),
-                      validator: (v) => v!.isEmpty ? "Required" : null,
-                    ),
-                  ),
+                  Expanded(child: TextFormField(controller: _capacityCtrl, decoration: const InputDecoration(labelText: "Capacity/Size"))),
                   const SizedBox(width: 10),
-                  Expanded(
-                    child: TextFormField(
-                      controller: _commCtrl,
-                      keyboardType: TextInputType.number,
-                      decoration: const InputDecoration(labelText: "Comm %"),
-                      validator: (v) => v!.isEmpty ? "Required" : null,
-                    ),
-                  ),
+                  Expanded(child: TextFormField(controller: _colorCtrl, decoration: const InputDecoration(labelText: "Color (Opt)"))),
+                ],
+              ),
+              const SizedBox(height: 10),
+              // Grouped Stock (Editable)
+              TextFormField(
+                controller: _stockCtrl,
+                keyboardType: TextInputType.number,
+                decoration: const InputDecoration(
+                  labelText: "Current Stock",
+                  suffixIcon: Icon(Icons.inventory_2_outlined),
+                ),
+                validator: (v) => v!.isEmpty ? "Required" : null,
+              ),
+              const SizedBox(height: 10),
+              // Grouped Pricing
+              Row(
+                children: [
+                  Expanded(child: TextFormField(controller: _mrpCtrl, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: "MRP"), validator: (v) => v!.isEmpty ? "Required" : null)),
+                  const SizedBox(width: 10),
+                  Expanded(child: TextFormField(controller: _commCtrl, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: "Comm %"), validator: (v) => v!.isEmpty ? "Required" : null)),
                 ],
               ),
             ],
@@ -391,17 +409,27 @@ class _EditProductDialogState extends ConsumerState<_EditProductDialog> {
             final comm = double.parse(_commCtrl.text);
             final buyingPrice = mrp - (mrp * (comm / 100));
 
-            // Create updated object
+            // 👈 2. Check for Stock Increase
+            final newStock = int.parse(_stockCtrl.text);
+            final isStockIncreased = newStock > widget.product.currentStock;
+
+            // 👈 3. Determine Date: If stock increased, use Now, else keep old date.
+            final dateToSave = isStockIncreased
+                ? DateTime.now()
+                : widget.product.lastUpdated;
+
             final updatedProduct = Product(
               id: widget.product.id,
-              model: widget.product.model, // Model usually doesn't change
+              model: widget.product.model,
               category: widget.product.category,
-              currentStock: widget.product.currentStock,
+              currentStock: newStock, // Save new stock
               name: _nameCtrl.text.trim(),
               capacity: _capacityCtrl.text.trim(),
+              color: _colorCtrl.text.trim(),
               marketPrice: mrp,
               commissionPercent: comm,
               buyingPrice: buyingPrice,
+              lastUpdated: dateToSave, // Save logic
             );
 
             try {

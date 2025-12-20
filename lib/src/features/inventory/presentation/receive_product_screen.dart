@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:intl/intl.dart'; // 👈 Import for DateFormat
 import '../data/inventory_repository.dart';
 import '../domain/product_model.dart';
 import 'receiving_pdf_generator.dart';
@@ -18,12 +19,14 @@ class _ReceiveProductScreenState extends ConsumerState<ReceiveProductScreen> {
   final _nameController = TextEditingController();
   final _modelController = TextEditingController();
   final _capacityController = TextEditingController();
+  final _colorController = TextEditingController();
   final _qtyController = TextEditingController();
   final _mrpController = TextEditingController();
   final _commissionController = TextEditingController();
 
   // State
   String? _selectedCategory;
+  DateTime _selectedDate = DateTime.now(); // 👈 New: Selected Date State
   double _calculatedBuyingPrice = 0.0;
   bool _isLoading = false;
 
@@ -52,6 +55,19 @@ class _ReceiveProductScreenState extends ConsumerState<ReceiveProductScreen> {
     });
   }
 
+  // 👈 Date Picker Method
+  Future<void> _pickDate() async {
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: _selectedDate,
+      firstDate: DateTime(2020),
+      lastDate: DateTime.now(),
+    );
+    if (picked != null) {
+      setState(() => _selectedDate = picked);
+    }
+  }
+
   void _addToList() {
     if (!_formKey.currentState!.validate()) return;
     if (_selectedCategory == null) return;
@@ -62,10 +78,12 @@ class _ReceiveProductScreenState extends ConsumerState<ReceiveProductScreen> {
       model: _modelController.text.trim(),
       category: _selectedCategory!,
       capacity: _capacityController.text.trim(),
+      color: _colorController.text.trim(),
       marketPrice: double.parse(_mrpController.text.trim()),
       commissionPercent: double.parse(_commissionController.text.trim()),
       buyingPrice: _calculatedBuyingPrice,
       currentStock: int.parse(_qtyController.text.trim()),
+      lastUpdated: _selectedDate, // 👈 Use Selected Date
     );
 
     setState(() {
@@ -74,10 +92,9 @@ class _ReceiveProductScreenState extends ConsumerState<ReceiveProductScreen> {
       _modelController.clear();
       _nameController.clear();
       _capacityController.clear();
+      _colorController.clear();
       _qtyController.clear();
-      // Keep pricing fields if user is adding similar items, or clear them:
-      // _mrpController.clear();
-      // _commissionController.clear();
+      // Note: We do NOT clear _selectedDate so users can batch add for the same date easily
     });
 
     ScaffoldMessenger.of(context).showSnackBar(
@@ -91,16 +108,9 @@ class _ReceiveProductScreenState extends ConsumerState<ReceiveProductScreen> {
     setState(() => _isLoading = true);
 
     try {
-      // 1. Save to DB
       await ref.read(inventoryRepositoryProvider).receiveBatchProducts(_tempBatchList);
-
-      // 2. Create a copy of the list for the PDF (before clearing UI)
       final itemsSaved = List<Product>.from(_tempBatchList);
-
-      // 3. Clear UI
       setState(() => _tempBatchList.clear());
-
-      // 4. Show Success Dialog with PDF Option
       if (mounted) _showBatchSuccessDialog(itemsSaved);
 
     } catch (e) {
@@ -131,10 +141,9 @@ class _ReceiveProductScreenState extends ConsumerState<ReceiveProductScreen> {
             label: const Text("Print Challan"),
             onPressed: () {
               Navigator.pop(ctx);
-              // Call the new Batch Generator
               ReceivingPdfGenerator.generateBatchReceivingMemo(
                 products: itemsSaved,
-                receivedBy: "Admin", // Replace with actual user email if available
+                receivedBy: "Admin",
               );
             },
           )
@@ -175,6 +184,7 @@ class _ReceiveProductScreenState extends ConsumerState<ReceiveProductScreen> {
                     _SectionHeader(title: "Add Item Details", icon: Icons.add_circle_outline),
                     const SizedBox(height: 16),
 
+                    // Row 1: Category & Model
                     Row(
                       children: [
                         Expanded(
@@ -182,7 +192,6 @@ class _ReceiveProductScreenState extends ConsumerState<ReceiveProductScreen> {
                           child: DropdownButtonFormField<String>(
                             isExpanded: true,
                             value: _selectedCategory,
-                            // Ensure Dropdown text is visible in both modes
                             style: TextStyle(
                               color: isDark ? Colors.white : Colors.black87,
                               fontSize: 14,
@@ -216,18 +225,42 @@ class _ReceiveProductScreenState extends ConsumerState<ReceiveProductScreen> {
                     ),
                     const SizedBox(height: 10),
 
+                    // Row 2: Product Name
+                    TextFormField(
+                      controller: _nameController,
+                      textInputAction: TextInputAction.next,
+                      decoration: _inputDecor(label: 'Product Name'),
+                      style: TextStyle(color: isDark ? Colors.white : Colors.black87),
+                      validator: (v) => v!.isEmpty ? 'Req' : null,
+                    ),
+                    const SizedBox(height: 10),
+
+                    // 👈 NEW Row: Date Picker
+                    InkWell(
+                      onTap: _pickDate,
+                      borderRadius: BorderRadius.circular(12),
+                      child: InputDecorator(
+                        decoration: _inputDecor(label: 'Received Date'),
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            Text(
+                              DateFormat('dd MMM yyyy').format(_selectedDate),
+                              style: TextStyle(
+                                color: isDark ? Colors.white : Colors.black87,
+                                fontSize: 14,
+                              ),
+                            ),
+                            Icon(Icons.calendar_today, size: 18, color: Theme.of(context).primaryColor),
+                          ],
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+
+                    // Row 3: Capacity & Color
                     Row(
                       children: [
-                        Expanded(
-                          child: TextFormField(
-                            controller: _nameController,
-                            textInputAction: TextInputAction.next,
-                            decoration: _inputDecor(label: 'Product Name'),
-                            style: TextStyle(color: isDark ? Colors.white : Colors.black87),
-                            validator: (v) => v!.isEmpty ? 'Req' : null,
-                          ),
-                        ),
-                        const SizedBox(width: 10),
                         Expanded(
                           child: TextFormField(
                             controller: _capacityController,
@@ -236,10 +269,20 @@ class _ReceiveProductScreenState extends ConsumerState<ReceiveProductScreen> {
                             style: TextStyle(color: isDark ? Colors.white : Colors.black87),
                           ),
                         ),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: TextFormField(
+                            controller: _colorController,
+                            textInputAction: TextInputAction.next,
+                            decoration: _inputDecor(label: 'Color (Opt)'),
+                            style: TextStyle(color: isDark ? Colors.white : Colors.black87),
+                          ),
+                        ),
                       ],
                     ),
                     const SizedBox(height: 10),
 
+                    // Row 4: Pricing
                     Row(
                       children: [
                         Expanded(
@@ -279,6 +322,7 @@ class _ReceiveProductScreenState extends ConsumerState<ReceiveProductScreen> {
 
                     const SizedBox(height: 20),
 
+                    // ADD BUTTON
                     SizedBox(
                       width: double.infinity,
                       height: 50,
@@ -316,7 +360,6 @@ class _ReceiveProductScreenState extends ConsumerState<ReceiveProductScreen> {
                           final item = _tempBatchList[index];
                           return Card(
                             margin: const EdgeInsets.symmetric(vertical: 4),
-                            // Ensure card matches theme explicitly
                             color: isDark ? const Color(0xFF1E293B) : Colors.white,
                             child: ListTile(
                               dense: true,
@@ -333,7 +376,8 @@ class _ReceiveProductScreenState extends ConsumerState<ReceiveProductScreen> {
                                   style: const TextStyle(fontWeight: FontWeight.bold)
                               ),
                               subtitle: Text(
-                                "Qty: ${item.currentStock} | Buy: ${item.buyingPrice.toStringAsFixed(0)}",
+                                // 👈 Show Date in list too
+                                "${DateFormat('dd/MM').format(item.lastUpdated!)} | Color: ${item.color.isEmpty ? 'N/A' : item.color}",
                                 style: TextStyle(color: isDark ? Colors.white60 : Colors.grey[700]),
                               ),
                               trailing: IconButton(
@@ -352,6 +396,7 @@ class _ReceiveProductScreenState extends ConsumerState<ReceiveProductScreen> {
             ),
           ),
 
+          // ... Save Button section ...
           Container(
             padding: const EdgeInsets.all(16),
             decoration: BoxDecoration(
@@ -386,19 +431,16 @@ class _ReceiveProductScreenState extends ConsumerState<ReceiveProductScreen> {
     );
   }
 
-  // 👇 UPDATED: Explicit text styling for both modes
   InputDecoration _inputDecor({required String label}) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final primaryColor = Theme.of(context).primaryColor;
 
     return InputDecoration(
       labelText: label,
-      // Label text (unfocused) - Light Grey for Dark Mode, Dark Grey for Light Mode
       labelStyle: TextStyle(
         color: isDark ? Colors.white60 : Colors.grey[600],
         fontSize: 14,
       ),
-      // Floating Label (focused) - Primary Color
       floatingLabelStyle: TextStyle(
         color: primaryColor,
         fontWeight: FontWeight.bold,
@@ -408,7 +450,6 @@ class _ReceiveProductScreenState extends ConsumerState<ReceiveProductScreen> {
         color: isDark ? Colors.white24 : Colors.black12,
       ),
       filled: true,
-      // Fill Color - Darker Slate for Dark Mode, very light grey for Light Mode
       fillColor: isDark ? const Color(0xFF1E293B) : Colors.grey[100],
       border: OutlineInputBorder(
           borderRadius: BorderRadius.circular(12),
