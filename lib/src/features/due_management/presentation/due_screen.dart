@@ -1,5 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:intl/intl.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import '../../analytics/presentation/sales_detail_screen.dart'; // 👈 Import Detail Screen
 import '../data/due_repository.dart';
 import 'payment_receipt_generator.dart';
 
@@ -7,13 +10,12 @@ class DueScreen extends ConsumerWidget {
   const DueScreen({super.key});
 
   @override
-  // 1. We use this 'parentContext' which stays alive even if rows are deleted
   Widget build(BuildContext parentContext, WidgetRef ref) {
     final dueListAsync = ref.watch(dueStreamProvider);
     final isDark = Theme.of(parentContext).brightness == Brightness.dark;
 
     return Scaffold(
-      appBar: AppBar(title: const Text("Due List (Khata)")),
+      appBar: AppBar(title: const Text("Due List (Invoices)")),
       body: dueListAsync.when(
         data: (dues) {
           if (dues.isEmpty) {
@@ -36,11 +38,11 @@ class DueScreen extends ConsumerWidget {
             );
           }
 
+          // Calculate Total Outstanding
           double totalOutstanding = 0;
           for (var item in dues) {
-            double total = (item['totalAmount'] ?? 0).toDouble();
-            double paid = (item['paidAmount'] ?? 0).toDouble();
-            totalOutstanding += (total - paid);
+            final double due = (item['dueAmount'] ?? 0).toDouble();
+            totalOutstanding += due;
           }
 
           return Column(
@@ -86,20 +88,38 @@ class DueScreen extends ConsumerWidget {
                   padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
                   itemCount: dues.length,
                   separatorBuilder: (_, __) => const SizedBox(height: 12),
-                  // 2. Renamed 'context' to 'itemContext' to avoid shadowing
                   itemBuilder: (itemContext, index) {
-                    final sale = dues[index];
-                    final double totalAmount = (sale['totalAmount'] ?? 0).toDouble();
-                    final double paidAmount = (sale['paidAmount'] ?? 0).toDouble();
-                    final double remainingDue = totalAmount - paidAmount;
+                    final invoice = dues[index];
+                    final double totalAmount = (invoice['totalAmount'] ?? 0).toDouble();
+                    final double paidAmount = (invoice['paidAmount'] ?? 0).toDouble();
+                    final double remainingDue = (invoice['dueAmount'] ?? (totalAmount - paidAmount)).toDouble();
+
+                    final int itemCount = (invoice['itemCount'] ?? 1).toInt();
+                    final Timestamp? ts = invoice['timestamp'];
+                    final dateStr = ts != null ? DateFormat('dd MMM yyyy').format(ts.toDate()) : 'Unknown Date';
 
                     return _DueCard(
-                      sale: sale,
+                      sale: invoice,
                       remainingDue: remainingDue,
                       totalAmount: totalAmount,
-                      // 3. CRITICAL FIX: Pass 'parentContext' here, NOT 'itemContext'
-                      // This ensures the dialog works even if this row is deleted immediately after payment.
-                      onPay: () => _showPaymentDialog(parentContext, ref, sale, remainingDue),
+                      itemCount: itemCount,
+                      dateStr: dateStr,
+                      // 👇 Navigate to Detail Screen on Tap
+                      onTap: () {
+                        Navigator.push(
+                          parentContext,
+                          MaterialPageRoute(
+                            builder: (context) => SalesDetailScreen(
+                              // Ensure 'id' is passed correctly for the detail screen to fetch items
+                              invoice: {
+                                ...invoice,
+                                'id': invoice['saleId'] ?? invoice['id'],
+                              },
+                            ),
+                          ),
+                        );
+                      },
+                      onPay: () => _showPaymentDialog(parentContext, ref, invoice, remainingDue),
                     );
                   },
                 ),
@@ -108,7 +128,10 @@ class DueScreen extends ConsumerWidget {
           );
         },
         loading: () => const Center(child: CircularProgressIndicator()),
-        error: (e, stack) => Center(child: Text('Error: $e')),
+        error: (e, stack) {
+          debugPrint("Due List Error: $e");
+          return Center(child: Text('Error: $e'));
+        },
       ),
     );
   }
@@ -166,7 +189,6 @@ class DueScreen extends ConsumerWidget {
                 _QuickAmountChip(label: "1000", onTap: () => amountController.text = "1000"),
                 _QuickAmountChip(
                   label: "FULL DUE",
-                  // Use 2 decimal places to avoid rounding errors
                   onTap: () => amountController.text = remainingDue.toStringAsFixed(2),
                   isPrimary: true,
                 ),
@@ -188,19 +210,16 @@ class DueScreen extends ConsumerWidget {
             onPressed: () async {
               final amount = double.tryParse(amountController.text) ?? 0;
 
-              // Validation with small buffer for float precision
-              if (amount <= 0 || amount > (remainingDue + 0.1)) {
+              if (amount <= 0 || amount > (remainingDue + 1.0)) {
                 ScaffoldMessenger.of(context).showSnackBar(
                   SnackBar(content: Text("Invalid Amount! Max: ${remainingDue.toStringAsFixed(2)}"), behavior: SnackBarBehavior.floating),
                 );
                 return;
               }
 
-              // Close the INPUT dialog
               Navigator.pop(ctx);
 
               try {
-                // Logic to handle full payment exactly
                 final isFullPayment = amount >= (remainingDue - 0.1);
                 final amountToPay = isFullPayment ? remainingDue : amount;
 
@@ -211,13 +230,11 @@ class DueScreen extends ConsumerWidget {
                   amountPayingNow: amountToPay,
                 );
 
-                // 4. CHECK PARENT CONTEXT MOUNTED
-                // Since we passed 'parentContext' to this function, it should still be mounted
-                // even if the list item was removed.
                 if (context.mounted) {
                   _showSuccessDialog(context, amountToPay, remainingDue, sale);
                 }
               } catch (e) {
+                debugPrint("Payment Error: $e");
                 if (context.mounted) {
                   ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Error: $e")));
                 }
@@ -259,7 +276,7 @@ class DueScreen extends ConsumerWidget {
               PaymentReceiptGenerator.generateReceipt(
                 customerName: sale['customerName'],
                 customerPhone: sale['customerPhone'] ?? '',
-                productName: sale['productName'],
+                productName: "Batch Invoice Items",
                 totalDueBefore: totalDueBefore,
                 amountPaid: amountPaid,
                 remainingDue: remainingAfter,
@@ -276,13 +293,19 @@ class _DueCard extends StatelessWidget {
   final Map<String, dynamic> sale;
   final double remainingDue;
   final double totalAmount;
+  final int itemCount;
+  final String dateStr;
   final VoidCallback onPay;
+  final VoidCallback onTap; // 👈 NEW
 
   const _DueCard({
     required this.sale,
     required this.remainingDue,
     required this.totalAmount,
+    required this.itemCount,
+    required this.dateStr,
     required this.onPay,
+    required this.onTap, // 👈 NEW
   });
 
   @override
@@ -301,84 +324,93 @@ class _DueCard extends StatelessWidget {
           ),
         ],
       ),
-      child: Padding(
-        padding: const EdgeInsets.all(16.0),
-        child: Row(
-          children: [
-            CircleAvatar(
-              radius: 24,
-              backgroundColor: Colors.red.withOpacity(0.1),
-              child: const Icon(Icons.history_edu_rounded, color: Colors.red),
-            ),
-            const SizedBox(width: 16),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    sale['customerName'] ?? 'Unknown',
-                    style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
-                  ),
-                  const SizedBox(height: 4),
-                  Row(
+      // 👇 Wrap with Material & InkWell for Tap
+      child: Material(
+        color: Colors.transparent,
+        borderRadius: BorderRadius.circular(16),
+        child: InkWell(
+          onTap: onTap, // 👈 Handle Tap
+          borderRadius: BorderRadius.circular(16),
+          child: Padding(
+            padding: const EdgeInsets.all(16.0),
+            child: Row(
+              children: [
+                CircleAvatar(
+                  radius: 24,
+                  backgroundColor: Colors.red.withOpacity(0.1),
+                  child: const Icon(Icons.receipt_long_rounded, color: Colors.red),
+                ),
+                const SizedBox(width: 16),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Icon(Icons.phone_android_rounded, size: 14, color: isDark ? Colors.white54 : Colors.grey),
-                      const SizedBox(width: 4),
-                      Text(sale['customerPhone'] ?? 'N/A', style: TextStyle(fontSize: 12, color: isDark ? Colors.white54 : Colors.grey)),
+                      Text(
+                        sale['customerName'] ?? 'Unknown',
+                        style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                      ),
+                      const SizedBox(height: 4),
+                      Row(
+                        children: [
+                          Icon(Icons.phone_android_rounded, size: 14, color: isDark ? Colors.white54 : Colors.grey),
+                          const SizedBox(width: 4),
+                          Text(sale['customerPhone'] ?? 'N/A', style: TextStyle(fontSize: 12, color: isDark ? Colors.white54 : Colors.grey)),
+                        ],
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        "$dateStr • $itemCount items (Batch)",
+                        style: TextStyle(fontSize: 12, color: isDark ? Colors.white30 : Colors.grey[400]),
+                      ),
                     ],
                   ),
-                  const SizedBox(height: 2),
-                  Text(
-                    "Item: ${sale['productName']}",
-                    style: TextStyle(fontSize: 12, color: isDark ? Colors.white30 : Colors.grey[400]),
-                  ),
-                ],
-              ),
-            ),
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.end,
-              children: [
-                Text(
-                  "Due: ৳${remainingDue.toStringAsFixed(0)}",
-                  style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: Colors.red),
                 ),
-                Text(
-                  "Total: ৳${totalAmount.toStringAsFixed(0)}",
-                  style: TextStyle(fontSize: 12, color: isDark ? Colors.white30 : Colors.grey),
-                ),
-                const SizedBox(height: 12),
-                InkWell(
-                  onTap: onPay,
-                  borderRadius: BorderRadius.circular(20),
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                    decoration: BoxDecoration(
-                      color: Theme.of(context).primaryColor,
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.end,
+                  children: [
+                    Text(
+                      "Due: ৳${remainingDue.toStringAsFixed(0)}",
+                      style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: Colors.red),
+                    ),
+                    Text(
+                      "Total: ৳${totalAmount.toStringAsFixed(0)}",
+                      style: TextStyle(fontSize: 12, color: isDark ? Colors.white30 : Colors.grey),
+                    ),
+                    const SizedBox(height: 12),
+                    InkWell(
+                      onTap: onPay,
                       borderRadius: BorderRadius.circular(20),
-                      boxShadow: [
-                        BoxShadow(
-                          color: Theme.of(context).primaryColor.withOpacity(0.3),
-                          blurRadius: 6,
-                          offset: const Offset(0, 3),
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                        decoration: BoxDecoration(
+                          color: Theme.of(context).primaryColor,
+                          borderRadius: BorderRadius.circular(20),
+                          boxShadow: [
+                            BoxShadow(
+                              color: Theme.of(context).primaryColor.withOpacity(0.3),
+                              blurRadius: 6,
+                              offset: const Offset(0, 3),
+                            ),
+                          ],
                         ),
-                      ],
-                    ),
-                    child: const Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Icon(Icons.payment_rounded, color: Colors.white, size: 16),
-                        SizedBox(width: 6),
-                        Text(
-                          "PAY NOW",
-                          style: TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.bold),
+                        child: const Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(Icons.payment_rounded, color: Colors.white, size: 16),
+                            SizedBox(width: 6),
+                            Text(
+                              "PAY NOW",
+                              style: TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.bold),
+                            ),
+                          ],
                         ),
-                      ],
-                    ),
-                  ),
-                )
+                      ),
+                    )
+                  ],
+                ),
               ],
             ),
-          ],
+          ),
         ),
       ),
     );

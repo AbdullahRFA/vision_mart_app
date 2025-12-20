@@ -1,150 +1,176 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import '../../sales/presentation/pdf_generator.dart';
+import '../../sales/data/sales_repository.dart'; // For CartItem class
+import '../../inventory/domain/product_model.dart'; // For Product class
+import '../data/analytics_repository.dart';
 
-class SalesDetailScreen extends StatelessWidget {
-  final Map<String, dynamic> sale;
+class SalesDetailScreen extends ConsumerStatefulWidget {
+  final Map<String, dynamic> invoice;
 
-  const SalesDetailScreen({super.key, required this.sale});
+  const SalesDetailScreen({super.key, required this.invoice});
+
+  @override
+  ConsumerState<SalesDetailScreen> createState() => _SalesDetailScreenState();
+}
+
+class _SalesDetailScreenState extends ConsumerState<SalesDetailScreen> {
+  late Future<List<Map<String, dynamic>>> _itemsFuture;
+
+  @override
+  void initState() {
+    super.initState();
+    final invoiceId = widget.invoice['id'] ?? widget.invoice['invoiceId'];
+    _itemsFuture = ref.read(analyticsRepositoryProvider).getInvoiceItems(invoiceId);
+  }
 
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
+    final invoice = widget.invoice;
 
-    // Parse Data
-    final date = (sale['timestamp'] as Timestamp).toDate();
-    final productName = sale['productName'] ?? 'Unknown Product';
-    final customerName = sale['customerName'] ?? 'Guest';
-    final customerPhone = sale['customerPhone'] ?? 'N/A';
-    // 👈 Retrieve Address (Handle null safely)
-    final customerAddress = sale['customerAddress'] ?? 'N/A';
+    // Parse Invoice Data
+    final timestamp = invoice['timestamp'] as Timestamp?;
+    final date = timestamp?.toDate() ?? DateTime.now();
+    final invoiceId = invoice['id'] ?? 'Unknown';
+    final customerName = invoice['customerName'] ?? 'Guest';
+    final customerPhone = invoice['customerPhone'] ?? 'N/A';
+    final customerAddress = invoice['customerAddress'] ?? 'N/A';
 
-    final totalAmount = (sale['totalAmount'] ?? 0).toDouble();
-    final profit = (sale['profit'] ?? 0).toDouble();
-    final quantity = (sale['quantity'] ?? 1).toInt();
-    final unitPrice = (sale['unitPrice'] ?? 0).toDouble();
-    final buyingPrice = (sale['buyingPrice'] ?? 0).toDouble();
-    final discount = (sale['discount'] ?? 0).toDouble();
-    final invoiceId = sale['invoiceId'] ?? 'INV-${date.millisecondsSinceEpoch}';
+    // Financials
+    final totalAmount = (invoice['totalAmount'] ?? 0).toDouble();
+    final paidAmount = (invoice['paidAmount'] ?? 0).toDouble();
+    final dueAmount = (invoice['dueAmount'] ?? 0).toDouble();
+    final totalProfit = (invoice['totalProfit'] ?? 0).toDouble();
+    final paymentStatus = invoice['paymentStatus'] ?? 'Cash';
 
     return Scaffold(
-      appBar: AppBar(title: const Text("Transaction Details")),
+      appBar: AppBar(title: const Text("Invoice Details")),
       floatingActionButton: FloatingActionButton.extended(
-        onPressed: () {
-          try {
-            PdfGenerator.generateInvoice(
-              invoiceId: invoiceId,
-              customerName: customerName,
-              customerPhone: customerPhone,
-              customerAddress: customerAddress, // 👈 Pass Address to PDF
-              products: [
-                {
-                  'name': productName,
-                  'model': sale['productModel'] ?? '',
-                  'qty': quantity,
-                  'price': unitPrice,
-                  'total': totalAmount + discount,
-                }
-              ],
-              totalAmount: totalAmount,
-              paidAmount: totalAmount,
-              dueAmount: 0,
-              discount: discount,
-              date: date,
-            );
-          } catch (e) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(content: Text("Error generating PDF: $e")),
-            );
-          }
-        },
+        onPressed: () => _printPdf(context, invoice, date),
         icon: const Icon(Icons.print),
-        // 1. WHITE: Button Text
-        label: const Text("Print Memo", style: TextStyle(color: Colors.white)),
-        backgroundColor: Colors.green, // Always Green button
+        label: const Text("Print Invoice", style: TextStyle(color: Colors.white)),
+        backgroundColor: Colors.green,
       ),
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(16),
         child: Column(
           children: [
-            // 1. Header Card (Total & Date)
+            // 1. INVOICE SUMMARY CARD
             Container(
               padding: const EdgeInsets.all(20),
-              width: double.infinity,
               decoration: BoxDecoration(
                 color: isDark ? const Color(0xFF1E293B) : Colors.white,
                 borderRadius: BorderRadius.circular(16),
                 border: Border.all(color: isDark ? Colors.white10 : Colors.grey.shade200),
-                boxShadow: [
-                  BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 10, offset: const Offset(0, 4))
-                ],
+                boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 10, offset: const Offset(0, 4))],
               ),
               child: Column(
                 children: [
-                  // 1. WHITE (faint): Label
-                  Text("Total Received", style: TextStyle(color: isDark ? Colors.white60 : Colors.grey)),
-                  const SizedBox(height: 8),
-                  // 3. GREEN: Total Amount
+                  Text("Invoice #$invoiceId", style: TextStyle(color: isDark ? Colors.white54 : Colors.grey)),
+                  const SizedBox(height: 5),
                   Text(
                     "৳${totalAmount.toStringAsFixed(0)}",
-                    style: TextStyle(fontSize: 32, fontWeight: FontWeight.bold, color: isDark ? Colors.greenAccent : Colors.green.shade700),
+                    style: TextStyle(fontSize: 36, fontWeight: FontWeight.bold, color: isDark ? Colors.white : Colors.black87),
                   ),
-                  const SizedBox(height: 8),
-                  // 2. YELLOW: Date
-                  Text(
-                    DateFormat('dd MMM yyyy • hh:mm a').format(date),
-                    style: TextStyle(color: isDark ? Colors.yellowAccent : Colors.grey[500], fontSize: 13),
+                  const SizedBox(height: 10),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                    decoration: BoxDecoration(
+                      color: dueAmount > 0 ? Colors.red.withOpacity(0.1) : Colors.green.withOpacity(0.1),
+                      borderRadius: BorderRadius.circular(20),
+                    ),
+                    child: Text(
+                      dueAmount > 0 ? "Due: ৳${dueAmount.toStringAsFixed(0)}" : "Fully Paid",
+                      style: TextStyle(fontWeight: FontWeight.bold, color: dueAmount > 0 ? Colors.red : Colors.green),
+                    ),
                   ),
+                  const SizedBox(height: 10),
+                  Text(DateFormat('dd MMM yyyy • hh:mm a').format(date), style: TextStyle(color: isDark ? Colors.white54 : Colors.grey)),
                 ],
               ),
             ),
             const SizedBox(height: 20),
 
-            // 2. Product Details
-            _DetailSection(
-              title: "Product Info",
-              icon: Icons.inventory_2_outlined,
-              children: [
-                _DetailRow(label: "Product", value: productName),
-                _DetailRow(label: "Model", value: sale['productModel'] ?? 'N/A'),
-                _DetailRow(label: "Category", value: sale['productCategory'] ?? 'N/A'),
-                const Divider(color: Colors.white24),
-                _DetailRow(label: "Quantity Sold", value: "$quantity Units"),
-                _DetailRow(label: "Selling Price (Unit)", value: "৳${unitPrice.toStringAsFixed(0)}"),
-              ],
-            ),
-            const SizedBox(height: 16),
-
-            // 3. Customer Details
+            // 2. CUSTOMER INFO
             _DetailSection(
               title: "Customer Info",
               icon: Icons.person_outline,
               children: [
                 _DetailRow(label: "Name", value: customerName),
                 _DetailRow(label: "Phone", value: customerPhone),
-                // 👈 Show Address Row
                 _DetailRow(label: "Address", value: customerAddress),
               ],
             ),
             const SizedBox(height: 16),
 
-            // 4. Financial Details
+            // 3. PRODUCT ITEMS LIST (Fetched Async)
+            FutureBuilder<List<Map<String, dynamic>>>(
+              future: _itemsFuture,
+              builder: (context, snapshot) {
+                if (snapshot.connectionState == ConnectionState.waiting) {
+                  return const Center(child: CircularProgressIndicator());
+                }
+                if (snapshot.hasError) {
+                  return Center(child: Text("Error: ${snapshot.error}"));
+                }
+                final items = snapshot.data ?? [];
+
+                return _DetailSection(
+                  title: "Items Purchased (${items.length})",
+                  icon: Icons.shopping_cart_outlined,
+                  children: items.map((item) {
+                    final pName = item['productModel'] ?? item['productName'] ?? 'Item';
+                    final qty = item['quantity'] ?? 0;
+                    final price = item['totalAmount'] ?? 0;
+                    final mrp = item['mrp'] ?? 0;
+                    final disc = item['discountPercent'] ?? 0;
+
+                    return Column(
+                      children: [
+                        Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Container(
+                              padding: const EdgeInsets.all(8),
+                              decoration: BoxDecoration(color: Colors.blue.withOpacity(0.1), borderRadius: BorderRadius.circular(8)),
+                              child: Text("${qty}x", style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.blue)),
+                            ),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text("$pName", style: TextStyle(fontWeight: FontWeight.bold, color: isDark ? Colors.white : Colors.black87)),
+                                  Text("MRP: ৳$mrp • Disc: $disc%", style: TextStyle(fontSize: 12, color: isDark ? Colors.white54 : Colors.grey)),
+                                ],
+                              ),
+                            ),
+                            Text("৳$price", style: TextStyle(fontWeight: FontWeight.bold, color: isDark ? Colors.white : Colors.black87)),
+                          ],
+                        ),
+                        Divider(color: isDark ? Colors.white10 : Colors.grey.shade100),
+                      ],
+                    );
+                  }).toList(),
+                );
+              },
+            ),
+            const SizedBox(height: 16),
+
+            // 4. FINANCIAL SUMMARY (Admin Only)
             _DetailSection(
-              title: "Financial Analysis (Admin)",
-              icon: Icons.analytics_outlined,
-              color: isDark ? Colors.orangeAccent : Colors.orange,
+              title: "Payment Details",
+              icon: Icons.receipt_long_rounded,
+              color: Colors.orange,
               children: [
-                _DetailRow(label: "Buying Price (Unit)", value: "৳${buyingPrice.toStringAsFixed(0)}"),
-                _DetailRow(label: "Total Cost", value: "৳${(buyingPrice * quantity).toStringAsFixed(0)}"),
+                _DetailRow(label: "Total Amount", value: "৳${totalAmount.toStringAsFixed(0)}"),
+                _DetailRow(label: "Paid Amount", value: "৳${paidAmount.toStringAsFixed(0)}"),
+                _DetailRow(label: "Due Amount", value: "৳${dueAmount.toStringAsFixed(0)}", isBold: true, valueColor: dueAmount > 0 ? Colors.red : Colors.green),
                 const Divider(color: Colors.white24),
-                _DetailRow(
-                    label: "Net Profit",
-                    value: "৳${profit.toStringAsFixed(0)}",
-                    // 3. GREEN: Profit Value
-                    valueColor: isDark ? Colors.greenAccent : Colors.green,
-                    isBold: true
-                ),
+                _DetailRow(label: "Net Profit (Est.)", value: "৳${totalProfit.toStringAsFixed(0)}", valueColor: Colors.green, isBold: true),
               ],
             ),
             const SizedBox(height: 80),
@@ -153,8 +179,47 @@ class SalesDetailScreen extends StatelessWidget {
       ),
     );
   }
+
+  // Helper to re-construct CartItems for PDF
+  Future<void> _printPdf(BuildContext context, Map<String, dynamic> invoice, DateTime date) async {
+    final itemsData = await _itemsFuture;
+
+    // Convert Map items back to CartItem objects for the PDF generator
+    final cartItems = itemsData.map((data) {
+      return CartItem(
+          product: Product(
+            id: data['productId'] ?? '',
+            name: data['productName'] ?? '',
+            model: data['productModel'] ?? '',
+            category: data['category'] ?? '',
+            capacity: '', // Info might not be in sale record
+            marketPrice: (data['mrp'] ?? 0).toDouble(),
+            commissionPercent: 0, // Not needed for customer invoice
+            buyingPrice: 0, // Not needed for customer invoice
+            currentStock: 0,
+          ),
+          quantity: (data['quantity'] ?? 1).toInt(),
+          discountPercent: (data['discountPercent'] ?? 0).toDouble(),
+          finalPrice: (data['totalAmount'] ?? 0).toDouble()
+      );
+    }).toList();
+
+    if (context.mounted) {
+      PdfGenerator.generateBatchInvoice(
+        items: cartItems,
+        customerName: invoice['customerName'] ?? '',
+        customerPhone: invoice['customerPhone'] ?? '',
+        customerAddress: invoice['customerAddress'] ?? '',
+        paymentStatus: invoice['paymentStatus'] ?? 'Cash',
+        paidAmount: (invoice['paidAmount'] ?? 0).toDouble(),
+        dueAmount: (invoice['dueAmount'] ?? 0).toDouble(),
+        saleDate: date,
+      );
+    }
+  }
 }
 
+// ... Reusable Widgets ...
 class _DetailSection extends StatelessWidget {
   final String title;
   final IconData icon;
@@ -166,7 +231,6 @@ class _DetailSection extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    // 2. YELLOW: Section Headers (or specific color passed)
     final themeColor = color ?? (isDark ? Colors.yellowAccent : Theme.of(context).primaryColor);
 
     return Container(
@@ -179,13 +243,7 @@ class _DetailSection extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
-            children: [
-              Icon(icon, size: 20, color: themeColor),
-              const SizedBox(width: 8),
-              Text(title, style: TextStyle(fontWeight: FontWeight.bold, color: themeColor)),
-            ],
-          ),
+          Row(children: [Icon(icon, size: 20, color: themeColor), const SizedBox(width: 8), Text(title, style: TextStyle(fontWeight: FontWeight.bold, color: themeColor))]),
           const SizedBox(height: 16),
           ...children,
         ],
@@ -210,20 +268,8 @@ class _DetailRow extends StatelessWidget {
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          // 1. WHITE (faint): Label text
           Text(label, style: TextStyle(color: isDark ? Colors.white70 : Colors.grey[600])),
-          Expanded(
-            child: Text(
-              value,
-              textAlign: TextAlign.end,
-              style: TextStyle(
-                  fontWeight: isBold ? FontWeight.bold : FontWeight.normal,
-                  // 1. WHITE: Value Text (unless specific color like Green/Red is passed)
-                  color: valueColor ?? (isDark ? Colors.white : Colors.black87),
-                  fontSize: 15
-              ),
-            ),
-          ),
+          Text(value, style: TextStyle(fontWeight: isBold ? FontWeight.bold : FontWeight.normal, color: valueColor ?? (isDark ? Colors.white : Colors.black87), fontSize: 15)),
         ],
       ),
     );

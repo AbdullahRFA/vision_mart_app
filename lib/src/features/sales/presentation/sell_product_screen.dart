@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:intl/intl.dart'; // Needed for DateFormat
+import 'package:intl/intl.dart';
 import '../../inventory/domain/product_model.dart';
 import '../../inventory/data/inventory_repository.dart';
 import '../data/sales_repository.dart';
@@ -22,13 +22,16 @@ class _SellProductScreenState extends ConsumerState<SellProductScreen> {
   final _customerPhoneController = TextEditingController();
   final _customerAddressController = TextEditingController();
 
+  // Controller for Partial Payment
+  final _paidAmountController = TextEditingController();
+
   // Item Details
   Product? _selectedProduct;
   final _qtyController = TextEditingController(text: '1');
   final _discountController = TextEditingController(text: '0');
 
   String _paymentStatus = 'Cash';
-  DateTime _selectedDate = DateTime.now(); // 👈 Selected Date
+  DateTime _selectedDate = DateTime.now();
   double _currentLineTotal = 0.0;
   bool _isLoading = false;
 
@@ -43,7 +46,7 @@ class _SellProductScreenState extends ConsumerState<SellProductScreen> {
     _discountController.addListener(_calculateLineTotal);
   }
 
-  // 👈 Date Picker Logic
+  // Date Picker Logic
   Future<void> _pickDate() async {
     final picked = await showDatePicker(
       context: context,
@@ -54,7 +57,7 @@ class _SellProductScreenState extends ConsumerState<SellProductScreen> {
     if (picked != null) {
       setState(() => _selectedDate = DateTime(
           picked.year, picked.month, picked.day,
-          DateTime.now().hour, DateTime.now().minute // Keep current time
+          DateTime.now().hour, DateTime.now().minute
       ));
     }
   }
@@ -103,6 +106,32 @@ class _SellProductScreenState extends ConsumerState<SellProductScreen> {
       return;
     }
 
+    // 1. Calculate Total Amount
+    double totalCartAmount = 0;
+    for (var item in _cartItems) totalCartAmount += item.finalPrice;
+
+    // 2. Determine Paid Amount based on Status
+    double paidAmount = 0;
+    if (_paymentStatus == 'Cash') {
+      paidAmount = totalCartAmount;
+    } else if (_paymentStatus == 'Due') {
+      paidAmount = 0;
+    } else if (_paymentStatus == 'Partial') {
+      paidAmount = double.tryParse(_paidAmountController.text) ?? 0;
+
+      // Validation for Partial
+      if (paidAmount <= 0 || paidAmount >= totalCartAmount) {
+        ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text("Partial Amount must be greater than 0 and less than Total"))
+        );
+        return;
+      }
+    }
+
+    // 3. Calculate Due for display/PDF
+    double dueAmount = totalCartAmount - paidAmount;
+    if(dueAmount < 0) dueAmount = 0;
+
     setState(() => _isLoading = true);
     try {
       await ref.read(salesRepositoryProvider).sellBatchProducts(
@@ -111,15 +140,19 @@ class _SellProductScreenState extends ConsumerState<SellProductScreen> {
         customerPhone: _customerPhoneController.text.trim(),
         customerAddress: _customerAddressController.text.trim(),
         paymentStatus: _paymentStatus,
-        saleDate: _selectedDate, // 👈 Pass Selected Date
+        paidAmount: paidAmount, // Passing the calculated amount
+        saleDate: _selectedDate,
       );
 
+      // Capture values for the Success Dialog
       final soldItems = List<CartItem>.from(_cartItems);
       final cName = _customerNameController.text;
       final cPhone = _customerPhoneController.text;
       final cAddress = _customerAddressController.text;
       final payStatus = _paymentStatus;
-      final sDate = _selectedDate; // 👈 Capture Date
+      final sDate = _selectedDate;
+      final pAmount = paidAmount;
+      final dAmount = dueAmount;
 
       if (mounted) {
         setState(() {
@@ -127,9 +160,13 @@ class _SellProductScreenState extends ConsumerState<SellProductScreen> {
           _customerNameController.clear();
           _customerPhoneController.clear();
           _customerAddressController.clear();
-          _selectedDate = DateTime.now(); // Reset date
+          _paidAmountController.clear();
+          _selectedDate = DateTime.now();
+          _paymentStatus = 'Cash';
         });
-        _showSuccessDialog(soldItems, cName, cPhone, cAddress, payStatus, sDate);
+
+        // Pass amounts to the dialog
+        _showSuccessDialog(soldItems, cName, cPhone, cAddress, payStatus, sDate, pAmount, dAmount);
       }
     } catch (e) {
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: $e')));
@@ -138,7 +175,8 @@ class _SellProductScreenState extends ConsumerState<SellProductScreen> {
     }
   }
 
-  void _showSuccessDialog(List<CartItem> items, String name, String phone, String address, String status, DateTime date) {
+  // 👇 FIXED: Added paidAmount and dueAmount parameters
+  void _showSuccessDialog(List<CartItem> items, String name, String phone, String address, String status, DateTime date, double paidAmount, double dueAmount) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     showDialog(
       context: context,
@@ -162,13 +200,16 @@ class _SellProductScreenState extends ConsumerState<SellProductScreen> {
             style: FilledButton.styleFrom(backgroundColor: Colors.green, foregroundColor: Colors.white),
             onPressed: () {
               Navigator.pop(ctx);
+              // 👇 FIXED: Passing the required parameters
               PdfGenerator.generateBatchInvoice(
                 items: items,
                 customerName: name,
                 customerPhone: phone,
                 customerAddress: address,
                 paymentStatus: status,
-                saleDate: date, // 👈 Pass Date to PDF
+                paidAmount: paidAmount, // ✅ Passed
+                dueAmount: dueAmount,   // ✅ Passed
+                saleDate: date,
               );
               Navigator.pop(context);
             },
@@ -232,7 +273,7 @@ class _SellProductScreenState extends ConsumerState<SellProductScreen> {
               ),
               const SizedBox(height: 10),
 
-              // 👈 DATE PICKER
+              // DATE PICKER
               InkWell(
                 onTap: _pickDate,
                 borderRadius: BorderRadius.circular(12),
@@ -402,14 +443,30 @@ class _SellProductScreenState extends ConsumerState<SellProductScreen> {
               const SizedBox(height: 20),
 
               // 4. CHECKOUT
+              _SectionHeader(title: "Payment Info", icon: Icons.payment),
+              const SizedBox(height: 10),
+
               DropdownButtonFormField<String>(
                 value: _paymentStatus,
                 dropdownColor: isDark ? const Color(0xFF1E293B) : Colors.white,
                 style: inputTextStyle,
-                items: ['Cash', 'Due'].map((e) => DropdownMenuItem(value: e, child: Text(e, style: inputTextStyle))).toList(),
+                // Partial Added
+                items: ['Cash', 'Due', 'Partial'].map((e) => DropdownMenuItem(value: e, child: Text(e, style: inputTextStyle))).toList(),
                 onChanged: (v) => setState(() => _paymentStatus = v!),
                 decoration: _inputDecor("Payment Type", Icons.payment),
               ),
+
+              // Conditional Paid Amount Field
+              if (_paymentStatus == 'Partial') ...[
+                const SizedBox(height: 10),
+                TextFormField(
+                  controller: _paidAmountController,
+                  keyboardType: TextInputType.number,
+                  style: inputTextStyle,
+                  decoration: _inputDecor("Paid Amount (Tk)", Icons.attach_money),
+                ),
+              ],
+
               const SizedBox(height: 20),
 
               Container(

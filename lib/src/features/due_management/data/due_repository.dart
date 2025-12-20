@@ -8,53 +8,59 @@ class DueRepository {
 
   DueRepository(this._firestore);
 
-  // 1. Get all sales that are NOT fully paid (Status 'Due' or 'Partial')
+  // 1. Get all INVOICES that are NOT fully paid
   Stream<List<Map<String, dynamic>>> watchDueCustomers() {
     return _firestore
-        .collection('sales')
-        .where('paymentStatus', whereIn: ['Due', 'Partial']) // 👈 Changed to support Partial
+        .collection('sales_invoices') // 👈 Changed to invoices
+        .where('paymentStatus', whereIn: ['Due', 'Partial'])
+        .orderBy('timestamp', descending: true) // Sort by date
         .snapshots()
         .map((snapshot) {
       return snapshot.docs.map((doc) {
         final data = doc.data();
-        data['saleId'] = doc.id;
+        data['saleId'] = doc.id; // This is now the Invoice ID
         return data;
       }).toList();
     });
   }
 
-  // 2. Receive a Payment (Partial or Full)
+  // 2. Receive a Payment (Updates Invoice)
   Future<void> receivePayment({
-    required String saleId,
-    required double currentPaidAmount, // How much they already paid before this
-    required double totalOrderAmount,  // The total bill
-    required double amountPayingNow,   // How much they are giving TODAY
+    required String saleId, // This is Invoice ID
+    required double currentPaidAmount,
+    required double totalOrderAmount,
+    required double amountPayingNow,
   }) async {
     final newTotalPaid = currentPaidAmount + amountPayingNow;
+    final remainingDue = totalOrderAmount - newTotalPaid;
 
     // Determine new status
-    // If they paid everything (or more), mark as Cash (Closed). Otherwise, 'Partial'.
-    // We use a small epsilon (0.1) to handle tiny floating point errors.
-    String newStatus = newTotalPaid >= (totalOrderAmount - 0.1) ? 'Cash' : 'Partial';
+    // Use a small epsilon (0.5) to handle tiny floating point diffs safely
+    String newStatus = remainingDue <= 0.5 ? 'Cash' : 'Partial';
 
     final batch = _firestore.batch();
-    final saleRef = _firestore.collection('sales').doc(saleId);
 
-    // A. Update the Sale Record
-    batch.update(saleRef, {
+    // Target the INVOICE document
+    final invoiceRef = _firestore.collection('sales_invoices').doc(saleId);
+
+    // A. Update the Invoice Record
+    batch.update(invoiceRef, {
       'paidAmount': newTotalPaid,
+      'dueAmount': remainingDue < 0 ? 0 : remainingDue, // Ensure no negative due
       'paymentStatus': newStatus,
       'lastUpdated': FieldValue.serverTimestamp(),
     });
 
-    // B. Create a Payment History Record (For receipts/audit)
-    // This allows you to see: "Paid 500 on Monday", "Paid 200 on Friday"
-    final paymentRef = saleRef.collection('payments').doc();
+    // B. Create a Payment History Record (Subcollection of Invoice)
+    final paymentRef = invoiceRef.collection('payments').doc();
     batch.set(paymentRef, {
       'amount': amountPayingNow,
       'date': FieldValue.serverTimestamp(),
-      'recordedBy': 'Admin', // In future, use actual user email
+      'recordedBy': 'Admin',
     });
+
+    // NOTE: We are NOT updating individual 'sales' items here to save write costs/complexity.
+    // The Invoice is now the master record for Due Management.
 
     await batch.commit();
   }

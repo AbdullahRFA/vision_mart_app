@@ -25,50 +25,26 @@ class SalesRepository {
 
   SalesRepository(this._firestore, this._ref);
 
-  Future<void> sellProduct({
-    required Product product,
-    required String customerName,
-    required String customerPhone,
-    required String customerAddress,
-    required int quantity,
-    required double discountPercent,
-    required String paymentStatus,
-    DateTime? saleDate, // 👈 Optional Date
-  }) async {
-    final sellingPriceUnit = product.marketPrice - (product.marketPrice * (discountPercent / 100));
-    final total = sellingPriceUnit * quantity;
-
-    await sellBatchProducts(
-      items: [CartItem(product: product, quantity: quantity, discountPercent: discountPercent, finalPrice: total)],
-      customerName: customerName,
-      customerPhone: customerPhone,
-      customerAddress: customerAddress,
-      paymentStatus: paymentStatus,
-      saleDate: saleDate, // 👈 Pass it
-    );
-  }
-
   Future<void> sellBatchProducts({
     required List<CartItem> items,
     required String customerName,
     required String customerPhone,
     required String customerAddress,
-    required String paymentStatus,
-    DateTime? saleDate, // 👈 New Parameter
+    required String paymentStatus, // 'Cash', 'Due', 'Partial'
+    required double paidAmount,    // 👈 NEW: Actual amount paid
+    DateTime? saleDate,
   }) async {
     final user = _ref.read(authServiceProvider).currentUser;
     if (user == null) throw Exception("User not logged in");
 
     final batch = _firestore.batch();
-
-    // 👇 Use custom date if provided, otherwise server time
     final timestamp = saleDate != null ? Timestamp.fromDate(saleDate) : FieldValue.serverTimestamp();
-
     final invoiceRef = _firestore.collection('sales_invoices').doc();
 
     double grandTotalAmount = 0;
     double grandTotalProfit = 0;
 
+    // 1. Calculate Totals
     for (var item in items) {
       if (item.product.currentStock < item.quantity) {
         throw Exception("Insufficient stock for ${item.product.name}");
@@ -78,25 +54,41 @@ class SalesRepository {
       grandTotalProfit += (item.finalPrice - totalBuyingPrice);
     }
 
-    // A. Invoice Record
+    // 2. Determine Due Amount
+    double dueAmount = grandTotalAmount - paidAmount;
+    // Safety check for floating point errors or negative due
+    if (dueAmount < 0) dueAmount = 0;
+
+    // 3. Create Master Invoice Record (This is now the source of truth for Due Screen)
     batch.set(invoiceRef, {
       'type': 'INVOICE',
       'customerName': customerName,
       'customerPhone': customerPhone,
       'customerAddress': customerAddress,
       'totalAmount': grandTotalAmount,
+      'paidAmount': paidAmount,     // 👈 Saved
+      'dueAmount': dueAmount,       // 👈 Saved
       'totalProfit': grandTotalProfit,
       'itemCount': items.length,
       'paymentStatus': paymentStatus,
       'soldBy': user.email,
-      'timestamp': timestamp, // 👈 Saved here
+      'timestamp': timestamp,
     });
 
-    // B. Individual Sales
+    // 4. Process Individual Items
     for (var item in items) {
       final unitPrice = item.product.marketPrice - (item.product.marketPrice * (item.discountPercent / 100));
       final totalBuyingPrice = item.product.buyingPrice * item.quantity;
       final profit = item.finalPrice - totalBuyingPrice;
+
+      // Distribute payment status/amount to items (for Analytics)
+      // If invoice is Partial, items are marked Partial.
+      // We distribute paidAmount proportionally: (ItemPrice / TotalPrice) * PaidAmount
+      double itemPaidAmount = 0;
+      if (grandTotalAmount > 0) {
+        itemPaidAmount = (item.finalPrice / grandTotalAmount) * paidAmount;
+      }
+      double itemDueAmount = item.finalPrice - itemPaidAmount;
 
       final saleRef = _firestore.collection('sales').doc();
       batch.set(saleRef, {
@@ -105,7 +97,7 @@ class SalesRepository {
         'productName': item.product.name,
         'productModel': item.product.model,
         'category': item.product.category,
-        'customerName': customerName,
+        'customerName': customerName, // Duplicated for easier querying
         'customerPhone': customerPhone,
         'customerAddress': customerAddress,
         'quantity': item.quantity,
@@ -113,18 +105,21 @@ class SalesRepository {
         'discountPercent': item.discountPercent,
         'sellingPriceUnit': unitPrice,
         'totalAmount': item.finalPrice,
+        'paidAmount': itemPaidAmount, // 👈 Proportional Pay
+        'dueAmount': itemDueAmount,   // 👈 Proportional Due
         'profit': profit,
         'paymentStatus': paymentStatus,
         'soldBy': user.email,
-        'timestamp': timestamp, // 👈 Saved here
+        'timestamp': timestamp,
       });
 
+      // Update Stock
       final productRef = _firestore.collection('products').doc(item.product.id);
       batch.update(productRef, {
         'currentStock': FieldValue.increment(-item.quantity),
-        // We usually don't update 'lastUpdated' on sale, or we can use current server time for stock sync
       });
 
+      // Inventory Log
       final logRef = _firestore.collection('inventory_logs').doc();
       batch.set(logRef, {
         'type': 'SELL',
@@ -132,10 +127,8 @@ class SalesRepository {
         'productId': item.product.id,
         'productName': item.product.name,
         'quantityRemoved': item.quantity,
-        'oldStock': item.product.currentStock,
-        'newStock': item.product.currentStock - item.quantity,
         'soldTo': customerName,
-        'timestamp': timestamp, // 👈 Saved here
+        'timestamp': timestamp,
       });
     }
 

@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-// 1. Core Repository Provider
 final analyticsRepositoryProvider = Provider((ref) => AnalyticsRepository(FirebaseFirestore.instance));
 
 class AnalyticsRepository {
@@ -10,10 +9,10 @@ class AnalyticsRepository {
 
   AnalyticsRepository(this._firestore);
 
-  // Fetch sales within a specific Date Range
+  // 1. Fetch sales invoices for a specific Date Range
   Stream<List<Map<String, dynamic>>> getSalesForRange(DateTime start, DateTime end) {
     return _firestore
-        .collection('sales')
+        .collection('sales_invoices')
         .where('timestamp', isGreaterThanOrEqualTo: Timestamp.fromDate(start))
         .where('timestamp', isLessThanOrEqualTo: Timestamp.fromDate(end))
         .orderBy('timestamp', descending: true)
@@ -26,20 +25,32 @@ class AnalyticsRepository {
       }).toList();
     });
   }
+
+  // 2. 👇 NEW: Fetch items for a specific Invoice ID
+  Future<List<Map<String, dynamic>>> getInvoiceItems(String invoiceId) async {
+    try {
+      final query = await _firestore
+          .collection('sales')
+          .where('invoiceId', isEqualTo: invoiceId)
+          .get();
+      return query.docs.map((d) => d.data()).toList();
+    } catch (e) {
+      debugPrint("Error fetching invoice items: $e");
+      return [];
+    }
+  }
 }
 
-// 2. Date Range Notifier (Replaces StateProvider)
+// ... (DateRangeNotifier and salesReportProvider remain unchanged) ...
 class DateRangeNotifier extends Notifier<DateTimeRange> {
   @override
   DateTimeRange build() {
-    // Default to Today
     final now = DateTime.now();
     final start = DateTime(now.year, now.month, now.day, 0, 0, 0);
     final end = DateTime(now.year, now.month, now.day, 23, 59, 59);
     return DateTimeRange(start: start, end: end);
   }
 
-  // Method to update the range
   void setRange(DateTimeRange range) {
     state = range;
   }
@@ -47,10 +58,8 @@ class DateRangeNotifier extends Notifier<DateTimeRange> {
 
 final dateRangeProvider = NotifierProvider<DateRangeNotifier, DateTimeRange>(DateRangeNotifier.new);
 
-// 3. Sales Report Provider
 final salesReportProvider = StreamProvider<List<Map<String, dynamic>>>((ref) {
   final repo = ref.watch(analyticsRepositoryProvider);
   final range = ref.watch(dateRangeProvider);
-
   return repo.getSalesForRange(range.start, range.end);
 });

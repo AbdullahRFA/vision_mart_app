@@ -12,8 +12,11 @@ import 'src/features/analytics/presentation/analytics_screen.dart';
 import 'src/features/analytics/data/analytics_repository.dart';
 import 'src/features/due_management/presentation/due_screen.dart';
 import 'src/features/expenses/presentation/expense_screen.dart';
-
-// ... [ThemeModeNotifier, themeModeProvider, main, and VisionMartApp remain unchanged] ...
+import 'src/features/expenses/data/expense_repository.dart';
+import 'src/features/expenses/domain/expense_model.dart';
+// 👇 Added Inventory Imports
+import 'src/features/inventory/data/inventory_repository.dart';
+import 'src/features/inventory/domain/product_model.dart';
 
 class ThemeModeNotifier extends Notifier<ThemeMode> {
   @override
@@ -160,7 +163,11 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
     final user = ref.read(authServiceProvider).currentUser;
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final range = _getDateRange();
+
+    // 1. Watch Data Streams
     final salesStream = ref.watch(analyticsRepositoryProvider).getSalesForRange(range.start, range.end);
+    final expensesAsync = ref.watch(expenseStreamProvider);
+    final inventoryAsync = ref.watch(inventoryStreamProvider); // 👈 Watch Inventory
 
     return Scaffold(
       appBar: AppBar(
@@ -231,16 +238,11 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
 
             const SizedBox(height: 24),
 
-            // --- BUSINESS OVERVIEW SECTION ---
-            // Locate this section inside your DashboardScreen > build > Column
-// under "// --- BUSINESS OVERVIEW SECTION ---"
-
+            // --- BUSINESS OVERVIEW ---
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
                 const Text("Business Overview", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-
-                // Filter Dropdown
                 PopupMenuButton<String>(
                   initialValue: _selectedFilter,
                   onSelected: (value) {
@@ -264,10 +266,6 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                           style: TextStyle(
                             fontSize: 12,
                             fontWeight: FontWeight.bold,
-                            // Changed to Yellow as requested
-                            // Note: Yellow is hard to read on White (Light Mode), so we typically keep it dark in light mode.
-                            // If you want yellow ALWAYS, just use 'Colors.yellow'.
-                            // Below logic: Yellow in Dark Mode, Dark Blue in Light Mode.
                             color: isDark ? Colors.yellow : Theme.of(context).primaryColor,
                           ),
                         ),
@@ -275,7 +273,6 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                         Icon(
                           Icons.arrow_drop_down,
                           size: 18,
-                          // Icon matches the text color
                           color: isDark ? Colors.yellow : Theme.of(context).primaryColor,
                         ),
                       ],
@@ -293,64 +290,116 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
             // --- METRIC CARDS ---
             StreamBuilder<List<Map<String, dynamic>>>(
               stream: salesStream,
-              builder: (context, snapshot) {
-                double totalRevenue = 0;
-                double totalProfit = 0;
-
-                if (snapshot.hasData) {
-                  for (var sale in snapshot.data!) {
-                    totalRevenue += (sale['totalAmount'] ?? 0).toDouble();
-                    totalProfit += (sale['profit'] ?? 0).toDouble();
-                  }
-                }
-
-                final totalInvestment = totalRevenue - totalProfit;
-                final bool isProfitNegative = totalProfit < 0;
-
-                if (snapshot.connectionState == ConnectionState.waiting) {
+              builder: (context, salesSnapshot) {
+                if (salesSnapshot.connectionState == ConnectionState.waiting) {
                   return const Center(child: LinearProgressIndicator());
                 }
 
-                return Column(
-                  children: [
-                    // Row 1: Investment & Revenue
-                    Row(
-                      children: [
-                        Expanded(
-                          child: _StatCard(
-                            title: "Investment",
-                            subtitle: "(COGS)",
-                            value: "৳${totalInvestment.toStringAsFixed(0)}",
-                            icon: Icons.inventory_2_outlined,
-                            color: Colors.purple,
-                          ),
-                        ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: _StatCard(
-                            title: "Revenue",
-                            subtitle: "(Sales)",
-                            value: "৳${totalRevenue.toStringAsFixed(0)}",
-                            icon: Icons.attach_money,
-                            color: Colors.blue,
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 12),
+                double totalRevenue = 0;
+                double totalGrossProfit = 0;
+                if (salesSnapshot.hasData) {
+                  for (var sale in salesSnapshot.data!) {
+                    totalRevenue += (sale['totalAmount'] ?? 0).toDouble();
+                    totalGrossProfit += (sale['totalProfit'] ?? 0).toDouble();
+                  }
+                }
 
-                    // Row 2: Profit (Full Width) with Conditional Background
-                    _StatCard(
-                      title: "Net Profit",
-                      subtitle: "(Earnings)",
-                      value: "৳${totalProfit.toStringAsFixed(0)}",
-                      icon: isProfitNegative ? Icons.trending_down : Icons.trending_up,
-                      // Pass Red/Green background color logic here
-                      backgroundColor: isProfitNegative ? Colors.red.shade700 : Colors.green.shade700,
-                      color: Colors.white, // This is ignored if backgroundColor is set, but kept for safety
-                      isFullWidth: true,
-                    ),
-                  ],
+                final double totalSoldCost = totalRevenue - totalGrossProfit;
+
+                return expensesAsync.when(
+                  data: (allExpenses) {
+                    final filteredExpenses = allExpenses.where((e) {
+                      return e.date.isAfter(range.start.subtract(const Duration(seconds: 1))) &&
+                          e.date.isBefore(range.end.add(const Duration(seconds: 1)));
+                    }).toList();
+
+                    double totalExpense = 0;
+                    for (var e in filteredExpenses) totalExpense += e.amount;
+
+                    final double netProfit = totalRevenue - (totalSoldCost + totalExpense);
+                    final bool isProfitNegative = netProfit < 0;
+
+                    return inventoryAsync.when(
+                      data: (products) {
+                        // 🧮 CALCULATE STOCK VALUE
+                        double totalStockValue = 0;
+                        for (var p in products) {
+                          totalStockValue += (p.buyingPrice * p.currentStock);
+                        }
+
+                        return Column(
+                          children: [
+                            // 1. New Card: Inventory Value (Full Width)
+                            _StatCard(
+                              title: "Current Stock Value",
+                              subtitle: "(Unsold Inventory Assets)",
+                              value: "৳${totalStockValue.toStringAsFixed(0)}",
+                              icon: Icons.warehouse_rounded,
+                              color: Colors.teal,
+                              isFullWidth: true,
+                            ),
+                            const SizedBox(height: 12),
+
+                            // 2. Investment (Sold) & Revenue
+                            Row(
+                              children: [
+                                Expanded(
+                                  child: _StatCard(
+                                    title: "Investment",
+                                    subtitle: "(Cost of Sold Goods)",
+                                    value: "৳${totalSoldCost.toStringAsFixed(0)}",
+                                    icon: Icons.inventory_2_outlined,
+                                    color: Colors.purple,
+                                  ),
+                                ),
+                                const SizedBox(width: 12),
+                                Expanded(
+                                  child: _StatCard(
+                                    title: "Revenue",
+                                    subtitle: "(Total Sales)",
+                                    value: "৳${totalRevenue.toStringAsFixed(0)}",
+                                    icon: Icons.attach_money,
+                                    color: Colors.blue,
+                                  ),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 12),
+
+                            // 3. Expense & Net Profit
+                            Row(
+                              children: [
+                                Expanded(
+                                  child: _StatCard(
+                                    title: "Total Expense",
+                                    subtitle: "(Operational)",
+                                    value: "৳${totalExpense.toStringAsFixed(0)}",
+                                    icon: Icons.money_off_csred_rounded,
+                                    color: Colors.redAccent,
+                                  ),
+                                ),
+                                const SizedBox(width: 12),
+                                Expanded(
+                                  child: _StatCard(
+                                    title: "Net Profit",
+                                    subtitle: "(Earnings)",
+                                    value: "৳${netProfit.toStringAsFixed(0)}",
+                                    icon: isProfitNegative ? Icons.trending_down : Icons.trending_up,
+                                    backgroundColor: isProfitNegative ? Colors.red.shade700 : Colors.green.shade700,
+                                    color: Colors.white,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ],
+                        );
+                      },
+                      loading: () => const LinearProgressIndicator(),
+                      error: (e, s) => Text("Error loading inventory: $e"),
+                    );
+                  },
+                  loading: () => const LinearProgressIndicator(),
+                  error: (e, s) => Text("Error loading expenses: $e"),
                 );
               },
             ),
@@ -407,7 +456,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
   }
 }
 
-// Updated Statistic Card Widget
+// Statistic Card Widget
 class _StatCard extends StatelessWidget {
   final String title;
   final String subtitle;
@@ -415,7 +464,7 @@ class _StatCard extends StatelessWidget {
   final IconData icon;
   final Color color;
   final bool isFullWidth;
-  final Color? backgroundColor; // Added to support solid background
+  final Color? backgroundColor;
 
   const _StatCard({
     required this.title,
@@ -430,13 +479,7 @@ class _StatCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
-
-    // Logic: If backgroundColor is provided (Profit card), use it.
-    // Otherwise use default Theme colors.
     final finalBgColor = backgroundColor ?? (isDark ? const Color(0xFF1E293B) : Colors.white);
-
-    // Logic: If we have a custom background (Red/Green), text MUST be White for contrast.
-    // If standard card, use standard colors (White/Grey for Dark Mode, Black/Grey for Light Mode).
     final hasCustomBg = backgroundColor != null;
     final mainTextColor = hasCustomBg ? Colors.white : (isDark ? Colors.white : Colors.black87);
     final subTextColor = hasCustomBg ? Colors.white70 : (isDark ? Colors.white70 : Colors.grey[600]);
@@ -471,10 +514,7 @@ class _StatCard extends StatelessWidget {
                 child: Icon(icon, size: 20, color: iconTintColor),
               ),
               if (isFullWidth)
-                Text(
-                  subtitle,
-                  style: TextStyle(fontSize: 12, color: subTextColor),
-                )
+                Text(subtitle, style: TextStyle(fontSize: 12, color: subTextColor))
             ],
           ),
           const SizedBox(height: 12),
@@ -484,18 +524,15 @@ class _StatCard extends StatelessWidget {
           const SizedBox(height: 4),
           Text(
             value,
-            style: TextStyle(
-              fontSize: 20,
-              fontWeight: FontWeight.bold,
-              color: mainTextColor,
-            ),
+            style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: mainTextColor),
           ),
         ],
       ),
     );
   }
 }
-// _DashboardCard remains unchanged
+
+// _DashboardCard
 class _DashboardCard extends StatelessWidget {
   final String title;
   final IconData icon;

@@ -3,7 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import '../data/analytics_repository.dart';
-import 'sales_detail_screen.dart'; // Import the detail screen
+import 'sales_detail_screen.dart'; // 👈 1. IMPORT ADDED
 
 class AnalyticsScreen extends ConsumerWidget {
   const AnalyticsScreen({super.key});
@@ -30,7 +30,6 @@ class AnalyticsScreen extends ConsumerWidget {
                 // Date Range Display
                 InkWell(
                   onTap: () => _pickDateRange(context, ref),
-                  borderRadius: BorderRadius.circular(12),
                   child: Container(
                     padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
                     decoration: BoxDecoration(
@@ -45,10 +44,7 @@ class AnalyticsScreen extends ConsumerWidget {
                           children: [
                             Icon(Icons.calendar_month_rounded, color: Theme.of(context).primaryColor, size: 20),
                             const SizedBox(width: 10),
-                            Text(
-                              "Period",
-                              style: TextStyle(fontWeight: FontWeight.bold, color: Theme.of(context).primaryColor),
-                            ),
+                            Text("Period", style: TextStyle(fontWeight: FontWeight.bold, color: Theme.of(context).primaryColor)),
                           ],
                         ),
                         Text(
@@ -60,7 +56,6 @@ class AnalyticsScreen extends ConsumerWidget {
                   ),
                 ),
                 const SizedBox(height: 16),
-
                 // Filter Pills
                 SingleChildScrollView(
                   scrollDirection: Axis.horizontal,
@@ -81,39 +76,36 @@ class AnalyticsScreen extends ConsumerWidget {
           // 2. REPORT CONTENT
           Expanded(
             child: salesAsync.when(
-              data: (allSalesData) {
-                // 👇 FILTER: Only show sales with NO Due Amount (Paid Sales)
-                final salesData = allSalesData.where((sale) {
-                  final due = (sale['dueAmount'] ?? 0).toDouble();
-                  return due <= 0;
+              data: (allInvoices) {
+                // 👇 FILTER: Only show sales where Due is effectively 0 (Fully Paid)
+                final invoices = allInvoices.where((invoice) {
+                  final due = (invoice['dueAmount'] ?? 0).toDouble();
+                  return due <= 0.5;
                 }).toList();
 
-                // CALCULATIONS
                 double totalRevenue = 0;
                 double totalProfit = 0;
-                int totalItems = 0;
+                int totalOrders = invoices.length;
 
-                for (var sale in salesData) {
-                  totalRevenue += (sale['totalAmount'] ?? 0);
-                  totalProfit += (sale['profit'] ?? 0);
-                  totalItems += (sale['quantity'] as num).toInt();
+                for (var invoice in invoices) {
+                  totalRevenue += (invoice['totalAmount'] ?? 0);
+                  totalProfit += (invoice['totalProfit'] ?? 0);
                 }
 
-                if (salesData.isEmpty) {
+                if (invoices.isEmpty) {
                   return Center(
                     child: Column(
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [
-                        Icon(Icons.bar_chart_rounded, size: 80, color: Colors.grey.withOpacity(0.3)),
+                        Icon(Icons.check_circle_outline, size: 80, color: Colors.grey.withOpacity(0.3)),
                         const SizedBox(height: 16),
-                        Text("No paid sales records found", style: TextStyle(color: Colors.grey.withOpacity(0.8))),
+                        Text("No fully paid records found", style: TextStyle(color: Colors.grey.withOpacity(0.8))),
                       ],
                     ),
                   );
                 }
 
-                // GROUPING LOGIC
-                final groupedTransactions = _groupTransactions(salesData);
+                final groupedTransactions = _groupTransactions(invoices);
 
                 return ListView(
                   padding: const EdgeInsets.all(16),
@@ -123,7 +115,7 @@ class AnalyticsScreen extends ConsumerWidget {
                       children: [
                         Expanded(
                           child: _MetricCard(
-                            title: "Revenue",
+                            title: "Revenue (Cash)",
                             value: "৳${totalRevenue.toStringAsFixed(0)}",
                             color: Colors.blue,
                             icon: Icons.attach_money,
@@ -134,7 +126,6 @@ class AnalyticsScreen extends ConsumerWidget {
                           child: _MetricCard(
                             title: "Net Profit",
                             value: "৳${totalProfit.toStringAsFixed(0)}",
-                            // 👇 UPDATED: Red if negative, Green otherwise
                             color: totalProfit < 0 ? Colors.red : Colors.green,
                             icon: totalProfit < 0 ? Icons.trending_down : Icons.trending_up,
                             isHighlighted: true,
@@ -145,21 +136,20 @@ class AnalyticsScreen extends ConsumerWidget {
                     const SizedBox(height: 12),
                     // METRICS ROW 2
                     _MetricCard(
-                      title: "Total Items Sold",
-                      value: "$totalItems Units",
+                      title: "Completed Orders",
+                      value: "$totalOrders",
                       color: Colors.orange,
-                      icon: Icons.shopping_bag_outlined,
+                      icon: Icons.receipt_long,
                       isHorizontal: true,
                     ),
 
                     const SizedBox(height: 25),
 
-                    // RENDER GROUPED TRANSACTIONS
+                    // RENDER TRANSACTIONS
                     ...groupedTransactions.entries.map((entry) {
                       return Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          // Date Header
                           Padding(
                             padding: const EdgeInsets.symmetric(vertical: 12.0),
                             child: Text(
@@ -171,35 +161,33 @@ class AnalyticsScreen extends ConsumerWidget {
                               ),
                             ),
                           ),
-                          // List of Cards for this date
-                          ...entry.value.map((sale) {
-                            final date = (sale['timestamp'] as Timestamp).toDate();
+                          ...entry.value.map((invoice) {
+                            final date = (invoice['timestamp'] as Timestamp).toDate();
                             final timeStr = DateFormat('hh:mm a').format(date);
+                            final itemCount = invoice['itemCount'] ?? 1;
 
-                            // 👇 WRAPPED WITH INKWELL TO NAVIGATE TO DETAIL SCREEN
+                            // 👇 2. NAVIGATION LOGIC ADDED
                             return InkWell(
                               onTap: () {
                                 Navigator.push(
                                   context,
                                   MaterialPageRoute(
-                                    builder: (context) => SalesDetailScreen(sale: sale),
+                                    builder: (context) => SalesDetailScreen(invoice: invoice),
                                   ),
                                 );
                               },
-                              borderRadius: BorderRadius.circular(16),
                               child: _TransactionCard(
-                                title: sale['productName'] ?? 'Unknown',
-                                subtitle: sale['customerName'] ?? 'Guest',
+                                title: invoice['customerName'] ?? 'Unknown',
+                                subtitle: "Invoice #...${invoice['id'].toString().substring(invoice['id'].toString().length - 4)} • $itemCount items",
                                 date: timeStr,
-                                amount: "৳${sale['totalAmount']}",
-                                profit: "৳${(sale['profit'] as num).toStringAsFixed(0)}",
+                                amount: "৳${invoice['totalAmount']}",
+                                profit: "৳${(invoice['totalProfit'] as num).toStringAsFixed(0)}",
                               ),
                             );
                           }),
                         ],
                       );
                     }),
-
                     const SizedBox(height: 20),
                   ],
                 );
@@ -213,7 +201,7 @@ class AnalyticsScreen extends ConsumerWidget {
     );
   }
 
-  // 👇 HELPER: Group transactions by Date
+  // Helper: Group by Date
   Map<String, List<Map<String, dynamic>>> _groupTransactions(List<Map<String, dynamic>> sales) {
     final Map<String, List<Map<String, dynamic>>> grouped = {};
     final now = DateTime.now();
@@ -225,17 +213,11 @@ class AnalyticsScreen extends ConsumerWidget {
       final checkDate = DateTime(date.year, date.month, date.day);
 
       String headerKey;
-      if (checkDate == today) {
-        headerKey = "Today";
-      } else if (checkDate == yesterday) {
-        headerKey = "Yesterday";
-      } else {
-        headerKey = DateFormat('dd MMM yyyy').format(date);
-      }
+      if (checkDate == today) headerKey = "Today";
+      else if (checkDate == yesterday) headerKey = "Yesterday";
+      else headerKey = DateFormat('dd MMM yyyy').format(date);
 
-      if (grouped[headerKey] == null) {
-        grouped[headerKey] = [];
-      }
+      if (grouped[headerKey] == null) grouped[headerKey] = [];
       grouped[headerKey]!.add(sale);
     }
     return grouped;
@@ -274,8 +256,6 @@ class AnalyticsScreen extends ConsumerWidget {
     }
   }
 }
-
-// --- WIDGETS ---
 
 class _FilterChip extends StatelessWidget {
   final String label;
