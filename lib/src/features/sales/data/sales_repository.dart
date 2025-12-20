@@ -29,10 +29,11 @@ class SalesRepository {
     required Product product,
     required String customerName,
     required String customerPhone,
-    required String customerAddress, // 👈 New Field
+    required String customerAddress,
     required int quantity,
     required double discountPercent,
     required String paymentStatus,
+    DateTime? saleDate, // 👈 Optional Date
   }) async {
     final sellingPriceUnit = product.marketPrice - (product.marketPrice * (discountPercent / 100));
     final total = sellingPriceUnit * quantity;
@@ -41,8 +42,9 @@ class SalesRepository {
       items: [CartItem(product: product, quantity: quantity, discountPercent: discountPercent, finalPrice: total)],
       customerName: customerName,
       customerPhone: customerPhone,
-      customerAddress: customerAddress, // 👈 Pass it
+      customerAddress: customerAddress,
       paymentStatus: paymentStatus,
+      saleDate: saleDate, // 👈 Pass it
     );
   }
 
@@ -50,14 +52,18 @@ class SalesRepository {
     required List<CartItem> items,
     required String customerName,
     required String customerPhone,
-    required String customerAddress, // 👈 New Field
+    required String customerAddress,
     required String paymentStatus,
+    DateTime? saleDate, // 👈 New Parameter
   }) async {
     final user = _ref.read(authServiceProvider).currentUser;
     if (user == null) throw Exception("User not logged in");
 
     final batch = _firestore.batch();
-    final timestamp = FieldValue.serverTimestamp();
+
+    // 👇 Use custom date if provided, otherwise server time
+    final timestamp = saleDate != null ? Timestamp.fromDate(saleDate) : FieldValue.serverTimestamp();
+
     final invoiceRef = _firestore.collection('sales_invoices').doc();
 
     double grandTotalAmount = 0;
@@ -77,13 +83,13 @@ class SalesRepository {
       'type': 'INVOICE',
       'customerName': customerName,
       'customerPhone': customerPhone,
-      'customerAddress': customerAddress, // 👈 Save Address
+      'customerAddress': customerAddress,
       'totalAmount': grandTotalAmount,
       'totalProfit': grandTotalProfit,
       'itemCount': items.length,
       'paymentStatus': paymentStatus,
       'soldBy': user.email,
-      'timestamp': timestamp,
+      'timestamp': timestamp, // 👈 Saved here
     });
 
     // B. Individual Sales
@@ -101,7 +107,7 @@ class SalesRepository {
         'category': item.product.category,
         'customerName': customerName,
         'customerPhone': customerPhone,
-        'customerAddress': customerAddress, // 👈 Save Address
+        'customerAddress': customerAddress,
         'quantity': item.quantity,
         'mrp': item.product.marketPrice,
         'discountPercent': item.discountPercent,
@@ -110,13 +116,13 @@ class SalesRepository {
         'profit': profit,
         'paymentStatus': paymentStatus,
         'soldBy': user.email,
-        'timestamp': timestamp,
+        'timestamp': timestamp, // 👈 Saved here
       });
 
       final productRef = _firestore.collection('products').doc(item.product.id);
       batch.update(productRef, {
         'currentStock': FieldValue.increment(-item.quantity),
-        'lastUpdated': timestamp,
+        // We usually don't update 'lastUpdated' on sale, or we can use current server time for stock sync
       });
 
       final logRef = _firestore.collection('inventory_logs').doc();
@@ -129,7 +135,7 @@ class SalesRepository {
         'oldStock': item.product.currentStock,
         'newStock': item.product.currentStock - item.quantity,
         'soldTo': customerName,
-        'timestamp': timestamp,
+        'timestamp': timestamp, // 👈 Saved here
       });
     }
 

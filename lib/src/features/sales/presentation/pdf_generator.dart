@@ -126,12 +126,18 @@ class PdfGenerator {
     required List<CartItem> items,
     required String customerName,
     required String customerPhone,
-    required String customerAddress, // 👈 Added Address
+    required String customerAddress,
     required String paymentStatus,
+    DateTime? saleDate, // 👈 New Parameter for Manual Date
   }) async {
     final pdf = pw.Document();
-    final date = DateFormat('dd-MMM-yyyy hh:mm a').format(DateTime.now());
-    final invoiceId = DateTime.now().millisecondsSinceEpoch.toString().substring(6);
+
+    // 👇 Use the passed saleDate if available, otherwise use now.
+    final dateToUse = saleDate ?? DateTime.now();
+    final dateStr = DateFormat('dd-MMM-yyyy hh:mm a').format(dateToUse);
+
+    // Generate Invoice ID based on the specific date/time
+    final invoiceId = dateToUse.millisecondsSinceEpoch.toString().substring(6);
 
     double grandTotal = 0;
     for (var i in items) grandTotal += i.finalPrice;
@@ -150,7 +156,7 @@ class PdfGenerator {
             pw.Row(
               mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
               children: [
-                pw.Text("Date: $date"),
+                pw.Text("Date: $dateStr"), // Display the selected date
                 pw.Text("Invoice #: $invoiceId", style: pw.TextStyle(fontWeight: pw.FontWeight.bold)),
               ],
             ),

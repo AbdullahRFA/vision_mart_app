@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:intl/intl.dart'; // Needed for DateFormat
 import '../../inventory/domain/product_model.dart';
 import '../../inventory/data/inventory_repository.dart';
 import '../data/sales_repository.dart';
@@ -19,7 +20,7 @@ class _SellProductScreenState extends ConsumerState<SellProductScreen> {
   // Customer Info
   final _customerNameController = TextEditingController();
   final _customerPhoneController = TextEditingController();
-  final _customerAddressController = TextEditingController(); // 👈 New Controller
+  final _customerAddressController = TextEditingController();
 
   // Item Details
   Product? _selectedProduct;
@@ -27,6 +28,7 @@ class _SellProductScreenState extends ConsumerState<SellProductScreen> {
   final _discountController = TextEditingController(text: '0');
 
   String _paymentStatus = 'Cash';
+  DateTime _selectedDate = DateTime.now(); // 👈 Selected Date
   double _currentLineTotal = 0.0;
   bool _isLoading = false;
 
@@ -39,6 +41,22 @@ class _SellProductScreenState extends ConsumerState<SellProductScreen> {
     _calculateLineTotal();
     _qtyController.addListener(_calculateLineTotal);
     _discountController.addListener(_calculateLineTotal);
+  }
+
+  // 👈 Date Picker Logic
+  Future<void> _pickDate() async {
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: _selectedDate,
+      firstDate: DateTime(2020),
+      lastDate: DateTime.now(),
+    );
+    if (picked != null) {
+      setState(() => _selectedDate = DateTime(
+          picked.year, picked.month, picked.day,
+          DateTime.now().hour, DateTime.now().minute // Keep current time
+      ));
+    }
   }
 
   void _calculateLineTotal() {
@@ -91,15 +109,17 @@ class _SellProductScreenState extends ConsumerState<SellProductScreen> {
         items: _cartItems,
         customerName: _customerNameController.text.trim(),
         customerPhone: _customerPhoneController.text.trim(),
-        customerAddress: _customerAddressController.text.trim(), // 👈 Pass Address
+        customerAddress: _customerAddressController.text.trim(),
         paymentStatus: _paymentStatus,
+        saleDate: _selectedDate, // 👈 Pass Selected Date
       );
 
       final soldItems = List<CartItem>.from(_cartItems);
       final cName = _customerNameController.text;
       final cPhone = _customerPhoneController.text;
-      final cAddress = _customerAddressController.text; // 👈 Capture Address
+      final cAddress = _customerAddressController.text;
       final payStatus = _paymentStatus;
+      final sDate = _selectedDate; // 👈 Capture Date
 
       if (mounted) {
         setState(() {
@@ -107,8 +127,9 @@ class _SellProductScreenState extends ConsumerState<SellProductScreen> {
           _customerNameController.clear();
           _customerPhoneController.clear();
           _customerAddressController.clear();
+          _selectedDate = DateTime.now(); // Reset date
         });
-        _showSuccessDialog(soldItems, cName, cPhone, cAddress, payStatus);
+        _showSuccessDialog(soldItems, cName, cPhone, cAddress, payStatus, sDate);
       }
     } catch (e) {
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: $e')));
@@ -117,7 +138,7 @@ class _SellProductScreenState extends ConsumerState<SellProductScreen> {
     }
   }
 
-  void _showSuccessDialog(List<CartItem> items, String name, String phone, String address, String status) {
+  void _showSuccessDialog(List<CartItem> items, String name, String phone, String address, String status, DateTime date) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     showDialog(
       context: context,
@@ -145,8 +166,9 @@ class _SellProductScreenState extends ConsumerState<SellProductScreen> {
                 items: items,
                 customerName: name,
                 customerPhone: phone,
-                customerAddress: address, // 👈 Generate PDF with Address
+                customerAddress: address,
                 paymentStatus: status,
+                saleDate: date, // 👈 Pass Date to PDF
               );
               Navigator.pop(context);
             },
@@ -201,12 +223,34 @@ class _SellProductScreenState extends ConsumerState<SellProductScreen> {
                 ],
               ),
               const SizedBox(height: 10),
-              // 👈 NEW: Address Field
+
+              // Address Field
               TextFormField(
                 controller: _customerAddressController,
                 style: inputTextStyle,
                 decoration: _inputDecor("Customer Address", Icons.location_on_outlined),
               ),
+              const SizedBox(height: 10),
+
+              // 👈 DATE PICKER
+              InkWell(
+                onTap: _pickDate,
+                borderRadius: BorderRadius.circular(12),
+                child: InputDecorator(
+                  decoration: _inputDecor("Sale Date", Icons.calendar_today),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Text(
+                        DateFormat('dd MMM yyyy').format(_selectedDate),
+                        style: inputTextStyle,
+                      ),
+                      Icon(Icons.arrow_drop_down, color: isDark ? Colors.white70 : Colors.grey),
+                    ],
+                  ),
+                ),
+              ),
+
               const SizedBox(height: 20),
 
               // 2. ADD ITEM SECTION
@@ -233,7 +277,7 @@ class _SellProductScreenState extends ConsumerState<SellProductScreen> {
                               : null,
                           hint: Text("Select Product", style: TextStyle(color: isDark ? Colors.white60 : Colors.grey)),
                           dropdownColor: isDark ? const Color(0xFF1E293B) : Colors.white,
-                          style: inputTextStyle, // White text
+                          style: inputTextStyle,
                           items: products.map((p) {
                             return DropdownMenuItem(
                               value: p,
@@ -418,7 +462,6 @@ class _SellProductScreenState extends ConsumerState<SellProductScreen> {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     return InputDecoration(
       labelText: label,
-      // Yellow Labels in Dark Mode
       labelStyle: TextStyle(color: isDark ? Colors.yellowAccent : Colors.grey[700]),
       prefixIcon: icon != null ? Icon(icon, size: 20, color: isDark ? Colors.white60 : Colors.grey) : null,
       filled: true,
