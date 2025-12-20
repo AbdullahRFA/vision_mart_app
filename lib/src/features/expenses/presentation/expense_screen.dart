@@ -4,19 +4,56 @@ import 'package:intl/intl.dart';
 import '../data/expense_repository.dart';
 import '../domain/expense_model.dart';
 
-class ExpenseScreen extends ConsumerWidget {
+class ExpenseScreen extends ConsumerStatefulWidget {
   const ExpenseScreen({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<ExpenseScreen> createState() => _ExpenseScreenState();
+}
+
+class _ExpenseScreenState extends ConsumerState<ExpenseScreen> {
+  String _selectedFilter = 'This Month'; // Default view
+
+  final List<String> _filters = [
+    'Today',
+    'This Week',
+    'This Month',
+    'This Year',
+    'All Time'
+  ];
+
+  // Logic to filter expenses based on selection
+  List<Expense> _applyFilter(List<Expense> allExpenses) {
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+
+    return allExpenses.where((e) {
+      final date = e.date;
+      final checkDate = DateTime(date.year, date.month, date.day);
+
+      switch (_selectedFilter) {
+        case 'Today':
+          return checkDate == today;
+        case 'This Week':
+        // Assuming week starts on Monday. Adjust if needed (e.g. Saturday)
+        // DateTime.weekday: Mon=1, ... Sun=7
+          final startOfWeek = today.subtract(Duration(days: today.weekday - 1));
+          return date.isAfter(startOfWeek.subtract(const Duration(seconds: 1)));
+        case 'This Month':
+          return date.year == now.year && date.month == now.month;
+        case 'This Year':
+          return date.year == now.year;
+        case 'All Time':
+        default:
+          return true;
+      }
+    }).toList();
+  }
+
+  @override
+  Widget build(BuildContext context) {
     final expenseAsync = ref.watch(expenseStreamProvider);
     final isDark = Theme.of(context).brightness == Brightness.dark;
-
-    // Calculate Totals for Header
-    double totalExpense = 0;
-    expenseAsync.whenData((expenses) {
-      for (var e in expenses) totalExpense += e.amount;
-    });
 
     return Scaffold(
       appBar: AppBar(title: const Text("Business Expenses")),
@@ -29,131 +66,127 @@ class ExpenseScreen extends ConsumerWidget {
       ),
       body: Column(
         children: [
-          // 1. Summary Card
-          Container(
-            width: double.infinity,
-            margin: const EdgeInsets.all(16),
-            padding: const EdgeInsets.all(20),
-            decoration: BoxDecoration(
-              gradient: const LinearGradient(
-                colors: [Color(0xFFEF4444), Color(0xFF991B1B)], // Red Gradient
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
-              ),
-              borderRadius: BorderRadius.circular(20),
-              boxShadow: [
-                BoxShadow(
-                    color: Colors.red.withOpacity(0.3),
-                    blurRadius: 10,
-                    offset: const Offset(0, 5)),
-              ],
-            ),
-            child: Column(
-              children: [
-                const Text("Total Expenses Recorded",
-                    style: TextStyle(color: Colors.white70)),
-                const SizedBox(height: 5),
-                Text(
-                  "৳${totalExpense.toStringAsFixed(0)}",
-                  style: const TextStyle(
-                      fontSize: 32,
-                      fontWeight: FontWeight.bold,
-                      color: Colors.white),
-                ),
-              ],
+          // 1. FILTERS
+          SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+            child: Row(
+              children: _filters.map((filter) {
+                final isSelected = _selectedFilter == filter;
+                return Padding(
+                  padding: const EdgeInsets.only(right: 8.0),
+                  child: FilterChip(
+                    label: Text(filter),
+                    selected: isSelected,
+                    showCheckmark: false,
+                    selectedColor: Colors.red.withOpacity(0.2),
+                    backgroundColor: isDark ? const Color(0xFF1E293B) : Colors.grey[100],
+                    labelStyle: TextStyle(
+                      color: isSelected ? Colors.redAccent : (isDark ? Colors.white60 : Colors.grey[700]),
+                      fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+                    ),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+                    side: BorderSide(
+                        color: isSelected ? Colors.redAccent : Colors.transparent
+                    ),
+                    onSelected: (bool selected) {
+                      if (selected) setState(() => _selectedFilter = filter);
+                    },
+                  ),
+                );
+              }).toList(),
             ),
           ),
 
-          // 2. Grouped Expense List
+          // 2. EXPENSE LIST & SUMMARY
           Expanded(
             child: expenseAsync.when(
-              data: (expenses) {
-                if (expenses.isEmpty) {
-                  return Center(
-                      child: Text("No expenses found.",
-                          style: TextStyle(color: Colors.grey[600])));
-                }
+              data: (allExpenses) {
+                // Apply the selected filter
+                final filteredExpenses = _applyFilter(allExpenses);
 
-                // 👇 Group the expenses by date
-                final groupedExpenses = _groupExpenses(expenses);
+                // Calculate Total for the selected period
+                double totalAmount = 0;
+                for (var e in filteredExpenses) totalAmount += e.amount;
 
-                return ListView(
-                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                  children: groupedExpenses.entries.map((entry) {
-                    final dateHeader = entry.key;
-                    final dailyExpenses = entry.value;
-
-                    return Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        // --- DATE HEADER ---
-                        Padding(
-                          padding: const EdgeInsets.symmetric(vertical: 12.0, horizontal: 4),
-                          child: Text(
-                            dateHeader,
-                            style: TextStyle(
-                              fontSize: 14,
-                              fontWeight: FontWeight.bold,
-                              color: isDark ? Colors.white54 : Colors.grey[700],
-                              letterSpacing: 1,
-                            ),
-                          ),
+                return Column(
+                  children: [
+                    // --- SUMMARY CARD (Dynamic) ---
+                    Container(
+                      width: double.infinity,
+                      margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                      padding: const EdgeInsets.all(20),
+                      decoration: BoxDecoration(
+                        gradient: const LinearGradient(
+                          colors: [Color(0xFFEF4444), Color(0xFF991B1B)],
+                          begin: Alignment.topLeft,
+                          end: Alignment.bottomRight,
                         ),
+                        borderRadius: BorderRadius.circular(20),
+                        boxShadow: [
+                          BoxShadow(
+                              color: Colors.red.withOpacity(0.3),
+                              blurRadius: 10,
+                              offset: const Offset(0, 5)),
+                        ],
+                      ),
+                      child: Column(
+                        children: [
+                          Text("Total Expense ($_selectedFilter)",
+                              style: const TextStyle(color: Colors.white70, fontSize: 14)),
+                          const SizedBox(height: 5),
+                          Text(
+                            "৳${totalAmount.toStringAsFixed(0)}",
+                            style: const TextStyle(
+                                fontSize: 32,
+                                fontWeight: FontWeight.bold,
+                                color: Colors.white),
+                          ),
+                        ],
+                      ),
+                    ),
 
-                        // --- EXPENSE ITEMS FOR THIS DATE ---
-                        ...dailyExpenses.map((expense) {
-                          return Card(
-                            color: isDark
-                                ? const Color(0xFF1E293B)
-                                : Colors.white,
-                            margin: const EdgeInsets.only(bottom: 10),
-                            child: ListTile(
-                              leading: CircleAvatar(
-                                backgroundColor: Colors.red.withOpacity(0.1),
-                                child: Icon(_getIconForCategory(expense.category),
-                                    color: Colors.red),
-                              ),
-                              title: Text(expense.category,
-                                  style: const TextStyle(fontWeight: FontWeight.bold)),
-                              subtitle: Text(
-                                // Show Time instead of Date here since Date is in header
-                                "${DateFormat('hh:mm a').format(expense.date)} • ${expense.note}",
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                              ),
-                              trailing: Row(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  Text(
-                                    "-৳${expense.amount.toStringAsFixed(0)}",
-                                    style: const TextStyle(
-                                        fontWeight: FontWeight.bold,
-                                        color: Colors.red,
-                                        fontSize: 16),
+                    // --- LIST ---
+                    Expanded(
+                      child: filteredExpenses.isEmpty
+                          ? Center(
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Icon(Icons.money_off_rounded, size: 60, color: Colors.grey.withOpacity(0.3)),
+                            const SizedBox(height: 10),
+                            Text("No expenses for $_selectedFilter", style: TextStyle(color: Colors.grey[600])),
+                          ],
+                        ),
+                      )
+                          : ListView(
+                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                        children: _groupExpenses(filteredExpenses, isDark).entries.map((entry) {
+                          final header = entry.key;
+                          final items = entry.value;
+
+                          return Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Padding(
+                                padding: const EdgeInsets.symmetric(vertical: 12.0, horizontal: 4),
+                                child: Text(
+                                  header,
+                                  style: TextStyle(
+                                    fontSize: 14,
+                                    fontWeight: FontWeight.bold,
+                                    color: isDark ? Colors.white54 : Colors.grey[700],
+                                    letterSpacing: 1,
                                   ),
-                                  const SizedBox(width: 8),
-                                  // Edit
-                                  IconButton(
-                                    icon: const Icon(Icons.edit,
-                                        size: 20, color: Colors.blue),
-                                    onPressed: () => _showEditExpenseDialog(
-                                        context, ref, expense),
-                                  ),
-                                  // Delete
-                                  IconButton(
-                                    icon: const Icon(Icons.delete_outline,
-                                        size: 20, color: Colors.grey),
-                                    onPressed: () => _confirmDelete(
-                                        context, ref, expense.id),
-                                  ),
-                                ],
+                                ),
                               ),
-                            ),
+                              ...items.map((expense) => _buildExpenseCard(context, ref, expense, isDark)),
+                            ],
                           );
-                        }),
-                      ],
-                    );
-                  }).toList(),
+                        }).toList(),
+                      ),
+                    ),
+                  ],
                 );
               },
               loading: () => const Center(child: CircularProgressIndicator()),
@@ -165,13 +198,53 @@ class ExpenseScreen extends ConsumerWidget {
     );
   }
 
-  // 👇 GROUPING LOGIC
-  Map<String, List<Expense>> _groupExpenses(List<Expense> expenses) {
+  Widget _buildExpenseCard(BuildContext context, WidgetRef ref, Expense expense, bool isDark) {
+    return Card(
+      color: isDark ? const Color(0xFF1E293B) : Colors.white,
+      margin: const EdgeInsets.only(bottom: 10),
+      child: ListTile(
+        leading: CircleAvatar(
+          backgroundColor: Colors.red.withOpacity(0.1),
+          child: Icon(_getIconForCategory(expense.category), color: Colors.red),
+        ),
+        title: Text(expense.category, style: const TextStyle(fontWeight: FontWeight.bold)),
+        subtitle: Text(
+          "${DateFormat('hh:mm a').format(expense.date)} • ${expense.note}",
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: TextStyle(color: isDark ? Colors.white60 : Colors.grey[600]),
+        ),
+        trailing: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              "-৳${expense.amount.toStringAsFixed(0)}",
+              style: const TextStyle(
+                  fontWeight: FontWeight.bold,
+                  color: Colors.red,
+                  fontSize: 16),
+            ),
+            const SizedBox(width: 8),
+            IconButton(
+              icon: const Icon(Icons.edit, size: 20, color: Colors.blue),
+              onPressed: () => _showEditExpenseDialog(context, ref, expense),
+            ),
+            IconButton(
+              icon: const Icon(Icons.delete_outline, size: 20, color: Colors.grey),
+              onPressed: () => _confirmDelete(context, ref, expense.id),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // Grouping Logic
+  Map<String, List<Expense>> _groupExpenses(List<Expense> expenses, bool isDark) {
     final grouped = <String, List<Expense>>{};
     final now = DateTime.now();
     final today = DateTime(now.year, now.month, now.day);
     final yesterday = today.subtract(const Duration(days: 1));
-    final tomorrow = today.add(const Duration(days: 1));
 
     for (var expense in expenses) {
       final date = expense.date;
@@ -182,15 +255,11 @@ class ExpenseScreen extends ConsumerWidget {
         header = "Today";
       } else if (checkDate == yesterday) {
         header = "Yesterday";
-      } else if (checkDate == tomorrow) {
-        header = "Tomorrow";
       } else {
         header = DateFormat('dd MMM yyyy').format(date);
       }
 
-      if (grouped[header] == null) {
-        grouped[header] = [];
-      }
+      if (grouped[header] == null) grouped[header] = [];
       grouped[header]!.add(expense);
     }
     return grouped;
@@ -198,18 +267,12 @@ class ExpenseScreen extends ConsumerWidget {
 
   IconData _getIconForCategory(String category) {
     switch (category) {
-      case 'Shop Rent':
-        return Icons.store;
-      case 'Electric Bill':
-        return Icons.bolt;
-      case 'Transport Cost':
-        return Icons.local_shipping;
-      case 'Food Cost':
-        return Icons.restaurant;
-      case 'Salary':
-        return Icons.people;
-      default:
-        return Icons.money_off;
+      case 'Shop Rent': return Icons.store;
+      case 'Electric Bill': return Icons.bolt;
+      case 'Transport Cost': return Icons.local_shipping;
+      case 'Food Cost': return Icons.restaurant;
+      case 'Salary': return Icons.people;
+      default: return Icons.money_off;
     }
   }
 
@@ -220,8 +283,7 @@ class ExpenseScreen extends ConsumerWidget {
         title: const Text("Delete Expense?"),
         content: const Text("Are you sure? This cannot be undone."),
         actions: [
-          TextButton(
-              onPressed: () => Navigator.pop(ctx), child: const Text("Cancel")),
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text("Cancel")),
           TextButton(
             onPressed: () {
               ref.read(expenseRepositoryProvider).deleteExpense(id);
@@ -242,27 +304,17 @@ class ExpenseScreen extends ConsumerWidget {
     _showExpenseDialog(context, ref, expense);
   }
 
-  // 👇 Unified Dialog for Add & Edit
   void _showExpenseDialog(BuildContext context, WidgetRef ref, Expense? expense) {
     final isEditing = expense != null;
     final formKey = GlobalKey<FormState>();
-
-    // Controllers
     final amountCtrl = TextEditingController(text: isEditing ? expense.amount.toString() : '');
     final noteCtrl = TextEditingController(text: isEditing ? expense.note : '');
 
     String selectedCategory = isEditing ? expense.category : 'Shop Rent';
     DateTime selectedDate = isEditing ? expense.date : DateTime.now();
 
-    final categories = [
-      'Shop Rent', 'Electric Bill', 'Transport Cost',
-      'Food Cost', 'Salary', 'Maintenance', 'Other'
-    ];
-
-    // Handle "Other" categories if custom data was saved previously
-    if (!categories.contains(selectedCategory)) {
-      selectedCategory = 'Other';
-    }
+    final categories = ['Shop Rent', 'Electric Bill', 'Transport Cost', 'Food Cost', 'Salary', 'Maintenance', 'Other'];
+    if (!categories.contains(selectedCategory)) selectedCategory = 'Other';
 
     showDialog(
       context: context,
@@ -277,26 +329,21 @@ class ExpenseScreen extends ConsumerWidget {
                 children: [
                   DropdownButtonFormField<String>(
                     value: selectedCategory,
-                    items: categories
-                        .map((c) => DropdownMenuItem(value: c, child: Text(c)))
-                        .toList(),
+                    items: categories.map((c) => DropdownMenuItem(value: c, child: Text(c))).toList(),
                     onChanged: (v) => setState(() => selectedCategory = v!),
-                    decoration: const InputDecoration(
-                        labelText: "Category", border: OutlineInputBorder()),
+                    decoration: const InputDecoration(labelText: "Category", border: OutlineInputBorder()),
                   ),
                   const SizedBox(height: 10),
                   TextFormField(
                     controller: amountCtrl,
                     keyboardType: TextInputType.number,
-                    decoration: const InputDecoration(
-                        labelText: "Amount (Tk)", border: OutlineInputBorder()),
+                    decoration: const InputDecoration(labelText: "Amount (Tk)", border: OutlineInputBorder()),
                     validator: (v) => v!.isEmpty ? "Required" : null,
                   ),
                   const SizedBox(height: 10),
                   TextFormField(
                     controller: noteCtrl,
-                    decoration: const InputDecoration(
-                        labelText: "Note (Optional)", border: OutlineInputBorder()),
+                    decoration: const InputDecoration(labelText: "Note (Optional)", border: OutlineInputBorder()),
                   ),
                   const SizedBox(height: 10),
                   ListTile(
@@ -308,7 +355,7 @@ class ExpenseScreen extends ConsumerWidget {
                         context: context,
                         initialDate: selectedDate,
                         firstDate: DateTime(2020),
-                        lastDate: DateTime(2030), // Allow future dates
+                        lastDate: DateTime(2030),
                       );
                       if (picked != null) setState(() => selectedDate = picked);
                     },
@@ -318,8 +365,7 @@ class ExpenseScreen extends ConsumerWidget {
             ),
           ),
           actions: [
-            TextButton(
-                onPressed: () => Navigator.pop(ctx), child: const Text("Cancel")),
+            TextButton(onPressed: () => Navigator.pop(ctx), child: const Text("Cancel")),
             ElevatedButton(
               onPressed: () async {
                 if (!formKey.currentState!.validate()) return;
@@ -341,15 +387,12 @@ class ExpenseScreen extends ConsumerWidget {
                       date: selectedDate,
                     );
                   }
-
                   if (context.mounted) {
-                    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-                        content: Text(isEditing ? "Expense Updated" : "Expense Added")));
+                    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(isEditing ? "Expense Updated" : "Expense Added")));
                   }
                 } catch (e) {
                   if (context.mounted) {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                        SnackBar(content: Text("Error: $e"), backgroundColor: Colors.red));
+                    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Error: $e"), backgroundColor: Colors.red));
                   }
                 }
               },
