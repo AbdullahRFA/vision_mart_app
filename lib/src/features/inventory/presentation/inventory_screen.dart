@@ -74,7 +74,6 @@ class _InventoryScreenState extends ConsumerState<InventoryScreen> {
             padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
             child: TextField(
               controller: _searchController,
-              // White text in Dark Mode
               style: TextStyle(color: isDark ? Colors.white : Colors.black87),
               decoration: InputDecoration(
                 hintText: 'Search Model or Name...',
@@ -106,7 +105,6 @@ class _InventoryScreenState extends ConsumerState<InventoryScreen> {
                     backgroundColor: isDark ? const Color(0xFF1E293B) : Colors.white,
                     selectedColor: isLowStock ? Colors.red.withOpacity(0.2) : Theme.of(context).primaryColor.withOpacity(0.2),
                     labelStyle: TextStyle(
-                      // Yellow/White text for better visibility in filters
                       color: isSelected
                           ? (isLowStock ? Colors.red : (isDark ? Colors.yellowAccent : Theme.of(context).primaryColor))
                           : (isDark ? Colors.white70 : Colors.grey[700]),
@@ -122,10 +120,17 @@ class _InventoryScreenState extends ConsumerState<InventoryScreen> {
 
           const SizedBox(height: 10),
 
-          // 3. PRODUCT LIST (Grouped)
+          // 3. MAIN CONTENT AREA
           Expanded(
             child: inventoryAsyncValue.when(
               data: (products) {
+                // --- CATEGORY SUMMARY LOGIC ---
+                final Map<String, int> categoryCounts = {};
+                for (var p in products) {
+                  categoryCounts[p.category] = (categoryCounts[p.category] ?? 0) + p.currentStock;
+                }
+
+                // --- FILTER LOGIC ---
                 final filteredProducts = products.where((p) {
                   final matchesSearch = p.name.toLowerCase().contains(_searchQuery) ||
                       p.model.toLowerCase().contains(_searchQuery);
@@ -136,7 +141,7 @@ class _InventoryScreenState extends ConsumerState<InventoryScreen> {
                       _selectedCategory.toLowerCase().contains(p.category.toLowerCase());
                 }).toList();
 
-                if (filteredProducts.isEmpty) {
+                if (products.isEmpty) {
                   return Center(child: Text("No products found", style: TextStyle(color: isDark ? Colors.white60 : Colors.grey)));
                 }
 
@@ -146,35 +151,63 @@ class _InventoryScreenState extends ConsumerState<InventoryScreen> {
 
                 final grouped = _groupProducts(filteredProducts);
 
-                return ListView(
-                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                  children: grouped.entries.map((entry) {
-                    final header = entry.key;
-                    final items = entry.value;
-
-                    return Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Padding(
-                          padding: const EdgeInsets.symmetric(vertical: 12.0, horizontal: 4),
-                          child: Text(
-                            header,
-                            style: TextStyle(
-                              fontSize: 14,
-                              fontWeight: FontWeight.bold,
-                              color: isDark ? Colors.white70 : Colors.grey[700],
-                              letterSpacing: 1,
-                            ),
-                          ),
+                return Column(
+                  children: [
+                    // 👇 NEW: CATEGORY STOCK SUMMARY (Horizontal List)
+                    if (_selectedCategory == "All" && _searchQuery.isEmpty) // Only show on main view
+                      SizedBox(
+                        height: 100,
+                        child: ListView(
+                          scrollDirection: Axis.horizontal,
+                          padding: const EdgeInsets.symmetric(horizontal: 16),
+                          children: categoryCounts.entries.map((entry) {
+                            return _CategorySummaryCard(
+                              category: entry.key,
+                              count: entry.value,
+                            );
+                          }).toList(),
                         ),
-                        ...items.map((product) => _ProductCard(
-                          product: product,
-                          onEdit: () => _showEditDialog(product),
-                          onDelete: () => _confirmDelete(product),
-                        )),
-                      ],
-                    );
-                  }).toList(),
+                      ),
+
+                    if (_selectedCategory == "All" && _searchQuery.isEmpty)
+                      const SizedBox(height: 10),
+
+                    // LIST OF PRODUCTS
+                    Expanded(
+                      child: filteredProducts.isEmpty
+                          ? Center(child: Text("No matching products", style: TextStyle(color: isDark ? Colors.white60 : Colors.grey)))
+                          : ListView(
+                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                        children: grouped.entries.map((entry) {
+                          final header = entry.key;
+                          final items = entry.value;
+
+                          return Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Padding(
+                                padding: const EdgeInsets.symmetric(vertical: 12.0, horizontal: 4),
+                                child: Text(
+                                  header,
+                                  style: TextStyle(
+                                    fontSize: 14,
+                                    fontWeight: FontWeight.bold,
+                                    color: isDark ? Colors.white70 : Colors.grey[700],
+                                    letterSpacing: 1,
+                                  ),
+                                ),
+                              ),
+                              ...items.map((product) => _ProductCard(
+                                product: product,
+                                onEdit: () => _showEditDialog(product),
+                                onDelete: () => _confirmDelete(product),
+                              )),
+                            ],
+                          );
+                        }).toList(),
+                      ),
+                    ),
+                  ],
                 );
               },
               loading: () => const Center(child: CircularProgressIndicator()),
@@ -218,6 +251,82 @@ class _InventoryScreenState extends ConsumerState<InventoryScreen> {
   }
 }
 
+// 👇 NEW WIDGET: Category Summary Card
+class _CategorySummaryCard extends StatelessWidget {
+  final String category;
+  final int count;
+
+  const _CategorySummaryCard({required this.category, required this.count});
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+
+    // Icon Mapping
+    IconData getIconForCategory(String cat) {
+      final c = cat.toLowerCase();
+      if (c.contains('tv')) return Icons.tv_rounded;
+      if (c.contains('fridge') || c.contains('refrigerator')) return Icons.kitchen_rounded;
+      if (c.contains('ac') || c.contains('air conditioner')) return Icons.ac_unit_rounded;
+      if (c.contains('wash')) return Icons.local_laundry_service_rounded;
+      if (c.contains('fan')) return Icons.air_rounded;
+      if (c.contains('kitchen')) return Icons.rice_bowl_rounded;
+      if (c.contains('audio')) return Icons.speaker_group_rounded;
+      if (c.contains('security')) return Icons.videocam_rounded;
+      return Icons.devices_other_rounded;
+    }
+
+    return Container(
+      width: 140,
+      margin: const EdgeInsets.only(right: 12),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: isDark ? const Color(0xFF1E293B) : Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: isDark ? Colors.white10 : Colors.grey.shade200),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.05),
+            blurRadius: 8,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Icon(getIconForCategory(category), size: 24, color: Theme.of(context).primaryColor),
+              Text(
+                "$count",
+                style: TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.bold,
+                  color: isDark ? Colors.white : Colors.black87,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Text(
+            category,
+            style: TextStyle(
+              fontSize: 11,
+              color: isDark ? Colors.white70 : Colors.grey[600],
+              fontWeight: FontWeight.w500,
+            ),
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 class _ProductCard extends StatelessWidget {
   final Product product;
   final VoidCallback? onEdit;
@@ -228,7 +337,6 @@ class _ProductCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final isLowStock = product.currentStock < 5;
-    // GREEN for safe stock, RED for low stock
     final stockColor = isLowStock ? Colors.redAccent : Colors.greenAccent;
     final isDark = Theme.of(context).brightness == Brightness.dark;
 
@@ -283,10 +391,8 @@ class _ProductCard extends StatelessWidget {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      // 1. WHITE: Model Name
                       Text(product.model, style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: isDark ? Colors.white : Colors.black87)),
                       const SizedBox(height: 4),
-                      // 2. YELLOW: Product Name
                       Text("${product.name}", style: TextStyle(fontSize: 12, color: isDark ? Colors.yellowAccent : Colors.grey[600]), maxLines: 1, overflow: TextOverflow.ellipsis),
 
                       if (product.color.isNotEmpty)
@@ -296,7 +402,6 @@ class _ProductCard extends StatelessWidget {
                         ),
                       const SizedBox(height: 6),
 
-                      // 3. GREEN: Price
                       Text("৳${product.marketPrice.toStringAsFixed(0)}", style: TextStyle(color: isDark ? Colors.greenAccent : Theme.of(context).primaryColor, fontWeight: FontWeight.bold, fontSize: 14)),
                     ],
                   ),
@@ -310,7 +415,6 @@ class _ProductCard extends StatelessWidget {
                         color: stockColor.withOpacity(0.1),
                         borderRadius: BorderRadius.circular(8),
                       ),
-                      // 3 & 4. GREEN or RED (Stock)
                       child: Text("${product.currentStock} Units", style: TextStyle(color: stockColor, fontWeight: FontWeight.bold, fontSize: 10)),
                     ),
                     const SizedBox(height: 8),
@@ -318,7 +422,6 @@ class _ProductCard extends StatelessWidget {
                       children: [
                         InkWell(onTap: onEdit, child: Icon(Icons.edit, size: 20, color: isDark ? Colors.blue[200] : Colors.grey[600])),
                         const SizedBox(width: 12),
-                        // 4. RED: Delete Icon
                         InkWell(onTap: onDelete, child: Icon(Icons.delete, size: 20, color: Colors.redAccent)),
                       ],
                     )
@@ -365,7 +468,6 @@ class _EditProductDialogState extends ConsumerState<_EditProductDialog> {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     return InputDecoration(
       labelText: label,
-      // 2. YELLOW: Labels in Dark Mode
       labelStyle: TextStyle(color: isDark ? Colors.yellowAccent : Colors.grey[600]),
       suffixIcon: suffixIcon,
       enabledBorder: OutlineInputBorder(
@@ -382,12 +484,10 @@ class _EditProductDialogState extends ConsumerState<_EditProductDialog> {
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    // 1. WHITE: Input Text
     final inputStyle = TextStyle(color: isDark ? Colors.white : Colors.black87);
 
     return AlertDialog(
       backgroundColor: isDark ? const Color(0xFF1E293B) : Colors.white,
-      // 1. WHITE: Title
       title: Text("Edit ${widget.product.model}", style: TextStyle(color: isDark ? Colors.white : Colors.black87)),
       content: SingleChildScrollView(
         child: Form(
@@ -432,7 +532,6 @@ class _EditProductDialogState extends ConsumerState<_EditProductDialog> {
       actions: [
         TextButton(
             onPressed: () => Navigator.pop(context),
-            // 4. RED: Cancel Button
             child: Text("Cancel", style: TextStyle(color: isDark ? Colors.redAccent : Colors.grey[700]))
         ),
         ElevatedButton(
@@ -471,7 +570,6 @@ class _EditProductDialogState extends ConsumerState<_EditProductDialog> {
               if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Error: $e")));
             }
           },
-          // Green Background (Standard for Save)
           child: const Text("Save Changes"),
         )
       ],
