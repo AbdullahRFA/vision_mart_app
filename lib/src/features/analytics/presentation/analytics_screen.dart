@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import '../data/analytics_repository.dart';
+import 'sales_detail_screen.dart'; // Import the detail screen
 
 class AnalyticsScreen extends ConsumerWidget {
   const AnalyticsScreen({super.key});
@@ -80,7 +81,13 @@ class AnalyticsScreen extends ConsumerWidget {
           // 2. REPORT CONTENT
           Expanded(
             child: salesAsync.when(
-              data: (salesData) {
+              data: (allSalesData) {
+                // 👇 FILTER: Only show sales with NO Due Amount (Paid Sales)
+                final salesData = allSalesData.where((sale) {
+                  final due = (sale['dueAmount'] ?? 0).toDouble();
+                  return due <= 0;
+                }).toList();
+
                 // CALCULATIONS
                 double totalRevenue = 0;
                 double totalProfit = 0;
@@ -99,13 +106,13 @@ class AnalyticsScreen extends ConsumerWidget {
                       children: [
                         Icon(Icons.bar_chart_rounded, size: 80, color: Colors.grey.withOpacity(0.3)),
                         const SizedBox(height: 16),
-                        Text("No sales records found", style: TextStyle(color: Colors.grey.withOpacity(0.8))),
+                        Text("No paid sales records found", style: TextStyle(color: Colors.grey.withOpacity(0.8))),
                       ],
                     ),
                   );
                 }
 
-                // 👇 GROUPING LOGIC
+                // GROUPING LOGIC
                 final groupedTransactions = _groupTransactions(salesData);
 
                 return ListView(
@@ -146,7 +153,7 @@ class AnalyticsScreen extends ConsumerWidget {
 
                     const SizedBox(height: 25),
 
-                    // 👇 RENDER GROUPED TRANSACTIONS
+                    // RENDER GROUPED TRANSACTIONS
                     ...groupedTransactions.entries.map((entry) {
                       return Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
@@ -155,7 +162,7 @@ class AnalyticsScreen extends ConsumerWidget {
                           Padding(
                             padding: const EdgeInsets.symmetric(vertical: 12.0),
                             child: Text(
-                              entry.key, // "Today", "Yesterday", or Date
+                              entry.key,
                               style: TextStyle(
                                   fontSize: 16,
                                   fontWeight: FontWeight.bold,
@@ -166,21 +173,32 @@ class AnalyticsScreen extends ConsumerWidget {
                           // List of Cards for this date
                           ...entry.value.map((sale) {
                             final date = (sale['timestamp'] as Timestamp).toDate();
-                            final timeStr = DateFormat('hh:mm a').format(date); // Just time needed now
+                            final timeStr = DateFormat('hh:mm a').format(date);
 
-                            return _TransactionCard(
-                              title: sale['productName'] ?? 'Unknown',
-                              subtitle: sale['customerName'] ?? 'Guest',
-                              date: timeStr, // Showing only time inside card
-                              amount: "৳${sale['totalAmount']}",
-                              profit: "৳${(sale['profit'] as num).toStringAsFixed(0)}",
+                            // 👇 WRAPPED WITH INKWELL TO NAVIGATE TO DETAIL SCREEN
+                            return InkWell(
+                              onTap: () {
+                                Navigator.push(
+                                  context,
+                                  MaterialPageRoute(
+                                    builder: (context) => SalesDetailScreen(sale: sale),
+                                  ),
+                                );
+                              },
+                              borderRadius: BorderRadius.circular(16),
+                              child: _TransactionCard(
+                                title: sale['productName'] ?? 'Unknown',
+                                subtitle: sale['customerName'] ?? 'Guest',
+                                date: timeStr,
+                                amount: "৳${sale['totalAmount']}",
+                                profit: "৳${(sale['profit'] as num).toStringAsFixed(0)}",
+                              ),
                             );
                           }),
                         ],
                       );
                     }),
 
-                    // Bottom padding
                     const SizedBox(height: 20),
                   ],
                 );
