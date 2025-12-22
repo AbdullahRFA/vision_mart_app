@@ -153,7 +153,7 @@ class _InventoryScreenState extends ConsumerState<InventoryScreen> {
 
                 return Column(
                   children: [
-                    // 👇 NEW: CATEGORY STOCK SUMMARY (Horizontal List)
+                    // CATEGORY STOCK SUMMARY (Horizontal List)
                     if (_selectedCategory == "All" && _searchQuery.isEmpty) // Only show on main view
                       SizedBox(
                         height: 100,
@@ -251,7 +251,7 @@ class _InventoryScreenState extends ConsumerState<InventoryScreen> {
   }
 }
 
-// 👇 NEW WIDGET: Category Summary Card
+// Category Summary Card
 class _CategorySummaryCard extends StatelessWidget {
   final String category;
   final int count;
@@ -262,7 +262,6 @@ class _CategorySummaryCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
 
-    // Icon Mapping
     IconData getIconForCategory(String cat) {
       final c = cat.toLowerCase();
       if (c.contains('tv')) return Icons.tv_rounded;
@@ -447,21 +446,39 @@ class _EditProductDialog extends ConsumerStatefulWidget {
 class _EditProductDialogState extends ConsumerState<_EditProductDialog> {
   final _formKey = GlobalKey<FormState>();
   late TextEditingController _nameCtrl;
+  late TextEditingController _modelCtrl; // 👈 New
   late TextEditingController _mrpCtrl;
   late TextEditingController _commCtrl;
   late TextEditingController _capacityCtrl;
   late TextEditingController _colorCtrl;
   late TextEditingController _stockCtrl;
+  String _selectedCategory = ""; // 👈 New
+
+  final List<String> _categoryOptions = [
+    'Television', 'Refrigerator & Freezer', 'Air Conditioner',
+    'Washing Machine', 'Fan & Air Cooling', 'Kitchen Appliance',
+    'Small Home Appliance', 'Audio & Multimedia',
+    'Security & Smart Device', 'Accessories & Digital'
+  ];
 
   @override
   void initState() {
     super.initState();
     _nameCtrl = TextEditingController(text: widget.product.name);
+    _modelCtrl = TextEditingController(text: widget.product.model); // 👈 Init
     _mrpCtrl = TextEditingController(text: widget.product.marketPrice.toString());
     _commCtrl = TextEditingController(text: widget.product.commissionPercent.toString());
     _capacityCtrl = TextEditingController(text: widget.product.capacity);
     _colorCtrl = TextEditingController(text: widget.product.color);
     _stockCtrl = TextEditingController(text: widget.product.currentStock.toString());
+
+    _selectedCategory = widget.product.category;
+    // Handle existing categories that might not be in the default list
+    if (!_categoryOptions.contains(_selectedCategory) && _selectedCategory.isNotEmpty) {
+      _categoryOptions.add(_selectedCategory);
+    } else if (_selectedCategory.isEmpty && _categoryOptions.isNotEmpty) {
+      _selectedCategory = _categoryOptions.first;
+    }
   }
 
   InputDecoration _dialogInputDecor(String label, {Widget? suffixIcon}) {
@@ -495,6 +512,25 @@ class _EditProductDialogState extends ConsumerState<_EditProductDialog> {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
+              // 👈 1. Model
+              TextFormField(
+                controller: _modelCtrl,
+                style: inputStyle,
+                decoration: _dialogInputDecor("Model"),
+                validator: (v) => v!.isEmpty ? "Required" : null,
+              ),
+              const SizedBox(height: 10),
+
+              // 👈 2. Category
+              DropdownButtonFormField<String>(
+                value: _selectedCategory,
+                items: _categoryOptions.map((c) => DropdownMenuItem(value: c, child: Text(c, style: inputStyle))).toList(),
+                onChanged: (v) => setState(() => _selectedCategory = v!),
+                decoration: _dialogInputDecor("Category"),
+                dropdownColor: isDark ? const Color(0xFF1E293B) : Colors.white,
+              ),
+              const SizedBox(height: 10),
+
               TextFormField(
                 controller: _nameCtrl,
                 style: inputStyle,
@@ -548,8 +584,8 @@ class _EditProductDialogState extends ConsumerState<_EditProductDialog> {
 
             final updatedProduct = Product(
               id: widget.product.id,
-              model: widget.product.model,
-              category: widget.product.category,
+              model: _modelCtrl.text.trim(), // 👈 Updated
+              category: _selectedCategory, // 👈 Updated
               currentStock: newStock,
               name: _nameCtrl.text.trim(),
               capacity: _capacityCtrl.text.trim(),

@@ -108,8 +108,12 @@ class _ReceiveProductScreenState extends ConsumerState<ReceiveProductScreen> {
     try {
       await ref.read(inventoryRepositoryProvider).receiveBatchProducts(_tempBatchList);
       final itemsSaved = List<Product>.from(_tempBatchList);
+      // Capture the date used for this batch before clearing
+      final batchDate = _selectedDate;
+
       setState(() => _tempBatchList.clear());
-      if (mounted) _showBatchSuccessDialog(itemsSaved);
+
+      if (mounted) _showBatchSuccessDialog(itemsSaved, batchDate);
 
     } catch (e) {
       debugPrint("Error: $e");
@@ -119,7 +123,8 @@ class _ReceiveProductScreenState extends ConsumerState<ReceiveProductScreen> {
     }
   }
 
-  void _showBatchSuccessDialog(List<Product> itemsSaved) {
+  // 👇 Modified to accept date
+  void _showBatchSuccessDialog(List<Product> itemsSaved, DateTime batchDate) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
 
     showDialog(
@@ -128,9 +133,7 @@ class _ReceiveProductScreenState extends ConsumerState<ReceiveProductScreen> {
       builder: (ctx) => AlertDialog(
         backgroundColor: isDark ? const Color(0xFF1E293B) : Colors.white,
         icon: const Icon(Icons.check_circle_rounded, color: Colors.green, size: 48),
-        // 1. WHITE: Dialog Title
         title: Text("Batch Received!", style: TextStyle(color: isDark ? Colors.white : Colors.black)),
-        // 1. WHITE: Dialog Content
         content: Text(
           "Successfully added ${itemsSaved.length} items to inventory.\n\nGenerate Challan PDF?",
           style: TextStyle(color: isDark ? Colors.white : Colors.black87),
@@ -138,21 +141,22 @@ class _ReceiveProductScreenState extends ConsumerState<ReceiveProductScreen> {
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx),
-            // 4. RED: Close Button (to match allowed colors)
             child: Text("Close", style: TextStyle(color: isDark ? Colors.redAccent : Colors.grey[700])),
           ),
           FilledButton.icon(
             icon: const Icon(Icons.print_rounded),
             label: const Text("Print Challan"),
             style: FilledButton.styleFrom(
-              backgroundColor: Colors.green, // Green Button
-              foregroundColor: Colors.white, // White Text
+              backgroundColor: Colors.green,
+              foregroundColor: Colors.white,
             ),
             onPressed: () {
               Navigator.pop(ctx);
+              // 👇 Passing the correct batchDate
               ReceivingPdfGenerator.generateBatchReceivingMemo(
                 products: itemsSaved,
                 receivedBy: "Admin",
+                receivingDate: batchDate,
               );
             },
           )
@@ -164,7 +168,6 @@ class _ReceiveProductScreenState extends ConsumerState<ReceiveProductScreen> {
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    // 1. WHITE: Text Color for Inputs
     final inputStyle = TextStyle(color: isDark ? Colors.white : Colors.black87);
 
     return Scaffold(
@@ -191,8 +194,6 @@ class _ReceiveProductScreenState extends ConsumerState<ReceiveProductScreen> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    // --- INPUT FORM ---
-                    // 2. YELLOW: Section Header
                     _SectionHeader(title: "Add Item Details", icon: Icons.add_circle_outline),
                     const SizedBox(height: 16),
 
@@ -207,11 +208,7 @@ class _ReceiveProductScreenState extends ConsumerState<ReceiveProductScreen> {
                             dropdownColor: isDark ? const Color(0xFF1E293B) : Colors.white,
                             items: _categoryOptions.map((c) => DropdownMenuItem(
                                 value: c,
-                                child: Text(
-                                    c,
-                                    style: TextStyle(fontSize: 13, color: isDark ? Colors.white : Colors.black87),
-                                    overflow: TextOverflow.ellipsis
-                                )
+                                child: Text(c, style: TextStyle(fontSize: 13, color: isDark ? Colors.white : Colors.black87), overflow: TextOverflow.ellipsis)
                             )).toList(),
                             onChanged: (v) => setState(() => _selectedCategory = v),
                             decoration: _inputDecor(label: 'Category'),
@@ -329,13 +326,8 @@ class _ReceiveProductScreenState extends ConsumerState<ReceiveProductScreen> {
                       child: OutlinedButton.icon(
                         onPressed: _addToList,
                         icon: const Icon(Icons.playlist_add),
-                        // Button Text White
                         label: const Text("ADD TO LIST", style: TextStyle(color: Colors.white)), // Explicitly white for button
                         style: OutlinedButton.styleFrom(
-                          // In Dark Mode, outlining with White or Yellow might be better?
-                          // Standard OutlinedButton usually takes Primary Color.
-                          // Let's force text white if background is dark, but OutlinedButton has transparent background.
-                          // To follow rule: White Text.
                           foregroundColor: isDark ? Colors.white : Theme.of(context).primaryColor,
                           side: BorderSide(color: isDark ? Colors.white : Theme.of(context).primaryColor),
                           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
@@ -345,7 +337,6 @@ class _ReceiveProductScreenState extends ConsumerState<ReceiveProductScreen> {
 
                     const SizedBox(height: 24),
                     const Divider(thickness: 2),
-                    // 2. YELLOW: Section Header
                     _SectionHeader(title: "Items to Save (${_tempBatchList.length})", icon: Icons.list_alt),
 
                     if (_tempBatchList.isEmpty)
@@ -354,7 +345,6 @@ class _ReceiveProductScreenState extends ConsumerState<ReceiveProductScreen> {
                         child: Center(
                             child: Text(
                               "List is empty. Add items above.",
-                              // 1. WHITE: Empty Text
                               style: TextStyle(color: isDark ? Colors.white : Colors.grey[600]),
                             )
                         ),
@@ -374,7 +364,6 @@ class _ReceiveProductScreenState extends ConsumerState<ReceiveProductScreen> {
                               leading: CircleAvatar(
                                 radius: 12,
                                 backgroundColor: isDark ? Colors.white10 : Colors.grey.shade300,
-                                // 1. WHITE: Index Text
                                 child: Text(
                                   "${index + 1}",
                                   style: TextStyle(fontSize: 12, color: isDark ? Colors.white : Colors.black),
@@ -382,19 +371,16 @@ class _ReceiveProductScreenState extends ConsumerState<ReceiveProductScreen> {
                               ),
                               title: Text(
                                   "${item.category} - ${item.model}",
-                                  // 1. WHITE: Title
                                   style: TextStyle(fontWeight: FontWeight.bold, color: isDark ? Colors.white : Colors.black87)
                               ),
                               subtitle: RichText(
                                 text: TextSpan(
                                   style: TextStyle(fontSize: 12, color: isDark ? Colors.white70 : Colors.grey[700]),
                                   children: [
-                                    // 2. YELLOW: Date & Color Details
                                     TextSpan(
                                       text: "${DateFormat('dd/MM').format(item.lastUpdated!)} | Color: ${item.color.isEmpty ? 'N/A' : item.color}\n",
                                       style: TextStyle(color: isDark ? Colors.yellowAccent : Colors.grey[700]),
                                     ),
-                                    // 3. GREEN: Price
                                     TextSpan(
                                       text: "Buy: ৳${item.buyingPrice.toStringAsFixed(0)}",
                                       style: TextStyle(
@@ -406,7 +392,6 @@ class _ReceiveProductScreenState extends ConsumerState<ReceiveProductScreen> {
                                 ),
                               ),
                               trailing: IconButton(
-                                // 4. RED: Remove Icon
                                 icon: const Icon(Icons.remove_circle_outline, color: Colors.redAccent),
                                 onPressed: () => setState(() => _tempBatchList.removeAt(index)),
                               ),
@@ -440,7 +425,6 @@ class _ReceiveProductScreenState extends ConsumerState<ReceiveProductScreen> {
               child: ElevatedButton.icon(
                 onPressed: (_isLoading || _tempBatchList.isEmpty) ? null : _submitBatch,
                 icon: const Icon(Icons.save_rounded),
-                // 1. WHITE: Button Text
                 label: _isLoading
                     ? const CircularProgressIndicator(color: Colors.white)
                     : const Text("SAVE ALL", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
@@ -463,7 +447,6 @@ class _ReceiveProductScreenState extends ConsumerState<ReceiveProductScreen> {
 
     return InputDecoration(
       labelText: label,
-      // 2. YELLOW: Labels in Dark Mode
       labelStyle: TextStyle(
         color: isDark ? Colors.yellowAccent : Colors.grey[600],
         fontSize: 14,
@@ -473,7 +456,6 @@ class _ReceiveProductScreenState extends ConsumerState<ReceiveProductScreen> {
         fontWeight: FontWeight.bold,
       ),
       hintText: label,
-      // 1. WHITE (faint): Hint Text
       hintStyle: TextStyle(
         color: isDark ? Colors.white60 : Colors.black12,
       ),
@@ -508,7 +490,6 @@ class _SectionHeader extends StatelessWidget {
 
     return Row(
       children: [
-        // 2. YELLOW: Icon & Text
         Icon(icon, size: 18, color: isDark ? Colors.yellowAccent : Theme.of(context).primaryColor),
         const SizedBox(width: 8),
         Text(title, style: TextStyle(

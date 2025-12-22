@@ -6,7 +6,7 @@ import '../domain/product_model.dart';
 
 class ReceivingPdfGenerator {
 
-  // Existing single item generator
+  // 1. SINGLE ITEM (Legacy/Optional)
   static Future<void> generateReceivingMemo({
     required String productName,
     required String model,
@@ -15,9 +15,10 @@ class ReceivingPdfGenerator {
     required double mrp,
     required double buyingPrice,
     required String receivedBy,
+    required DateTime date, // 👈 Added Date
   }) async {
     final pdf = pw.Document();
-    final date = DateFormat('dd-MMM-yyyy hh:mm a').format(DateTime.now());
+    final dateStr = DateFormat('dd-MMM-yyyy hh:mm a').format(date);
 
     pdf.addPage(
       pw.Page(
@@ -38,7 +39,7 @@ class ReceivingPdfGenerator {
                       pw.Text("INWARD CHALLAN", style: pw.TextStyle(fontSize: 12, fontWeight: pw.FontWeight.bold)),
                       pw.Text("Address: Damnash Bazar, Bagmara, Rajshahi", style: const pw.TextStyle(fontSize: 9)),
                       pw.SizedBox(height: 5),
-                      pw.Text("Date: $date", style: const pw.TextStyle(fontSize: 10)),
+                      pw.Text("Date: $dateStr", style: const pw.TextStyle(fontSize: 10)),
                     ],
                   ),
                 ),
@@ -61,17 +62,19 @@ class ReceivingPdfGenerator {
 
     await Printing.layoutPdf(
       onLayout: (PdfPageFormat format) async => pdf.save(),
-      name: 'Stock_In_${DateTime.now().millisecondsSinceEpoch}',
+      name: 'Stock_In_${date.millisecondsSinceEpoch}',
     );
   }
 
-  // 👇 UPDATED: Batch Generator matching Sales PDF style
+  // 2. BATCH GENERATOR (Main)
   static Future<void> generateBatchReceivingMemo({
     required List<Product> products,
     required String receivedBy,
+    required DateTime receivingDate, // 👈 NEW: Enforce passed date
   }) async {
     final pdf = pw.Document();
-    final date = DateFormat('dd-MMM-yyyy hh:mm a').format(DateTime.now());
+    // Use the passed date for the PDF text
+    final dateStr = DateFormat('dd-MMM-yyyy hh:mm a').format(receivingDate);
 
     // Calculate Totals
     int totalQty = 0;
@@ -87,7 +90,7 @@ class ReceivingPdfGenerator {
         margin: const pw.EdgeInsets.all(32),
         build: (pw.Context context) {
           return [
-            // --- HEADER (Matched with Sales PDF) ---
+            // --- HEADER ---
             pw.Center(
                 child: pw.Column(
                   children: [
@@ -107,7 +110,8 @@ class ReceivingPdfGenerator {
             pw.Row(
               mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
               children: [
-                pw.Text("Date: $date"),
+                // 👈 Using the passed dateStr
+                pw.Text("Receiving Date: $dateStr"),
                 pw.Text("User: $receivedBy", style: pw.TextStyle(fontWeight: pw.FontWeight.bold)),
               ],
             ),
@@ -167,7 +171,7 @@ class ReceivingPdfGenerator {
 
             pw.Spacer(),
 
-            // --- SIGNATURES (Matched Style) ---
+            // --- SIGNATURES ---
             pw.SizedBox(height: 30),
             pw.Row(
               mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
@@ -191,11 +195,10 @@ class ReceivingPdfGenerator {
 
     await Printing.layoutPdf(
       onLayout: (PdfPageFormat format) async => pdf.save(),
-      name: 'Batch_Challan_${DateTime.now().millisecondsSinceEpoch}',
+      name: 'Batch_Challan_${receivingDate.millisecondsSinceEpoch}',
     );
   }
 
-  // Helper for consistent signature lines (Same as Sales PDF)
   static pw.Widget _buildSignatureLine(String title) {
     return pw.Column(
       mainAxisSize: pw.MainAxisSize.min,

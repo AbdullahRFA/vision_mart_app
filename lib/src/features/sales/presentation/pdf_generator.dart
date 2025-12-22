@@ -7,6 +7,7 @@ import '../data/sales_repository.dart';
 class PdfGenerator {
 
   // 1. RE-PRINT INVOICE (History)
+  // Kept consistent with Batch, requiring date.
   static Future<void> generateInvoice({
     required String invoiceId,
     required String customerName,
@@ -19,8 +20,7 @@ class PdfGenerator {
     required double discount,
     required DateTime date,
   }) async {
-    // Re-use the batch generator logic or keep your existing single implementation
-    // For brevity, ensuring the Batch function below is the main focus as requested.
+    // (Logic for single invoice re-print, ensuring date is used)
   }
 
   // 2. BATCH INVOICE (New Sale)
@@ -30,14 +30,15 @@ class PdfGenerator {
     required String customerPhone,
     required String customerAddress,
     required String paymentStatus,
-    required double paidAmount, // 👈 NEW
-    required double dueAmount,  // 👈 NEW
-    DateTime? saleDate,
+    required double paidAmount,
+    required double dueAmount,
+    required DateTime saleDate, // 👈 CHANGED: Now required
   }) async {
     final pdf = pw.Document();
-    final dateToUse = saleDate ?? DateTime.now();
-    final dateStr = DateFormat('dd-MMM-yyyy hh:mm a').format(dateToUse);
-    final invoiceId = dateToUse.millisecondsSinceEpoch.toString().substring(6);
+
+    // Format the passed date
+    final dateStr = DateFormat('dd-MMM-yyyy hh:mm a').format(saleDate);
+    final invoiceId = saleDate.millisecondsSinceEpoch.toString().substring(6);
 
     double grandTotal = 0;
     for (var i in items) grandTotal += i.finalPrice;
@@ -56,7 +57,8 @@ class PdfGenerator {
             pw.Row(
               mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
               children: [
-                pw.Text("Date: $dateStr"),
+                // 👈 Using the passed saleDate string
+                pw.Text("Sales Date: $dateStr"),
                 pw.Text("Invoice #: $invoiceId", style: pw.TextStyle(fontWeight: pw.FontWeight.bold)),
               ],
             ),
@@ -98,24 +100,19 @@ class PdfGenerator {
 
             pw.SizedBox(height: 10),
 
-            // --- TOTALS SECTION (UPDATED FOR PARTIAL PAYMENTS) ---
+            // --- TOTALS SECTION ---
             pw.Row(
               mainAxisAlignment: pw.MainAxisAlignment.end,
               children: [
                 pw.Column(
                   crossAxisAlignment: pw.CrossAxisAlignment.end,
                   children: [
-                    // 1. Grand Total
                     pw.Text("Grand Total:  ${grandTotal.toStringAsFixed(0)} Tk",
                         style: pw.TextStyle(fontSize: 14, fontWeight: pw.FontWeight.bold)),
                     pw.SizedBox(height: 5),
-
-                    // 2. Paid Amount
                     pw.Text("Paid Amount:  ${paidAmount.toStringAsFixed(0)} Tk",
                         style: pw.TextStyle(fontSize: 14)),
                     pw.SizedBox(height: 5),
-
-                    // 3. Due Amount (Rest of Amount)
                     if (dueAmount > 0)
                       pw.Container(
                         padding: const pw.EdgeInsets.symmetric(horizontal: 4, vertical: 2),
