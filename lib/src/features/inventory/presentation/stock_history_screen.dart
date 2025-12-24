@@ -13,7 +13,7 @@ class StockHistoryScreen extends ConsumerStatefulWidget {
 }
 
 class _StockHistoryScreenState extends ConsumerState<StockHistoryScreen> {
-  DateTimeRange? _selectedRange; // Null means "All Time" by default or handle specialized filtering
+  DateTimeRange? _selectedRange;
 
   @override
   Widget build(BuildContext context) {
@@ -45,52 +45,101 @@ class _StockHistoryScreenState extends ConsumerState<StockHistoryScreen> {
       ),
       body: historyAsync.when(
         data: (batches) {
-          // Client-side Date Filtering
+          // 1. Client-side Filtering
           final filteredBatches = batches.where((batch) {
+            if (batch['type'] != 'INWARD_CHALLAN') return false;
             if (_selectedRange == null) return true;
+
             final Timestamp? ts = batch['timestamp'];
-            if (ts == null) return false;
-            final date = ts.toDate();
-            // Check if date is within start and end (inclusive)
-            return date.isAfter(_selectedRange!.start.subtract(const Duration(seconds: 1))) &&
-                date.isBefore(_selectedRange!.end.add(const Duration(days: 1)));
+            final date = ts?.toDate() ?? DateTime.now();
+
+            return date.isAfter(
+                _selectedRange!.start.subtract(const Duration(seconds: 1))) &&
+                date.isBefore(
+                    _selectedRange!.end.add(const Duration(days: 1)));
           }).toList();
 
           if (filteredBatches.isEmpty) {
-            return const Center(child: Text("No Stock History found."));
+            return Center(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(Icons.history_toggle_off,
+                      size: 60, color: Colors.grey.withOpacity(0.5)),
+                  const SizedBox(height: 10),
+                  const Text("No Stock History found"),
+                ],
+              ),
+            );
           }
+
+          // 2. Group by Date
+          final groupedBatches = _groupBatchesByDate(filteredBatches);
 
           return ListView.builder(
             padding: const EdgeInsets.all(16),
-            itemCount: filteredBatches.length,
+            itemCount: groupedBatches.length,
             itemBuilder: (context, index) {
-              final batch = filteredBatches[index];
-              final Timestamp? ts = batch['timestamp'];
-              final date = ts?.toDate() ?? DateTime.now();
-              final dateStr = DateFormat('dd MMM yyyy, hh:mm a').format(date);
-              final itemCount = batch['itemCount'] ?? 0;
-              final createdBy = batch['createdBy'] ?? 'Admin';
+              final dateHeader = groupedBatches.keys.elementAt(index);
+              final dayBatches = groupedBatches[dateHeader]!;
 
-              return Card(
-                color: isDark ? const Color(0xFF1E293B) : Colors.white,
-                elevation: 2,
-                margin: const EdgeInsets.only(bottom: 12),
-                child: ListTile(
-                  leading: CircleAvatar(
-                    backgroundColor: Colors.blue.withOpacity(0.1),
-                    child: const Icon(Icons.history, color: Colors.blue),
+              return Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  // Date Header
+                  Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 12.0, horizontal: 4),
+                    child: Text(
+                      dateHeader,
+                      style: TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.bold,
+                        color: isDark ? Colors.white70 : Colors.grey[700],
+                        letterSpacing: 1,
+                      ),
+                    ),
                   ),
-                  title: Text(dateStr, style: const TextStyle(fontWeight: FontWeight.bold)),
-                  subtitle: Text("$itemCount items received by $createdBy"),
-                  trailing: IconButton(
-                    icon: const Icon(Icons.print, color: Colors.green),
-                    tooltip: "Print Memo",
-                    onPressed: () async {
-                      // Fetch details and Print
-                      _printBatch(context, ref, batch['id'], createdBy, date);
-                    },
-                  ),
-                ),
+                  // List of Batches for this Date
+                  ...dayBatches.map((batch) {
+                    final Timestamp? ts = batch['timestamp'];
+                    final date = ts?.toDate() ?? DateTime.now();
+                    final timeStr = DateFormat('hh:mm a').format(date);
+                    final itemCount = batch['itemCount'] ?? 0;
+                    final createdBy = batch['createdBy'] ?? 'Admin';
+
+                    return Card(
+                      color: isDark ? const Color(0xFF1E293B) : Colors.white,
+                      elevation: 2,
+                      margin: const EdgeInsets.only(bottom: 12),
+                      child: ListTile(
+                        leading: CircleAvatar(
+                          backgroundColor: Colors.purple.withOpacity(0.1),
+                          child:
+                          const Icon(Icons.move_to_inbox_rounded, color: Colors.purple),
+                        ),
+                        title: Text(
+                          "Received at $timeStr",
+                          style: TextStyle(
+                              fontWeight: FontWeight.bold,
+                              color: isDark ? Colors.white : Colors.black87),
+                        ),
+                        subtitle: Text(
+                          "$itemCount items by $createdBy",
+                          style: TextStyle(
+                              color: isDark ? Colors.white70 : Colors.grey[600]),
+                        ),
+                        trailing: IconButton(
+                          icon: const Icon(Icons.print, color: Colors.green),
+                          tooltip: "Print Memo",
+                          onPressed: () async {
+                            _printBatch(
+                                context, ref, batch['id'], createdBy, date);
+                          },
+                        ),
+                      ),
+                    );
+                  }),
+                ],
               );
             },
           );
@@ -101,7 +150,36 @@ class _StockHistoryScreenState extends ConsumerState<StockHistoryScreen> {
     );
   }
 
-  Future<void> _printBatch(BuildContext context, WidgetRef ref, String batchId, String user, DateTime date) async {
+  // Helper to group items map keys
+  Map<String, List<Map<String, dynamic>>> _groupBatchesByDate(
+      List<Map<String, dynamic>> batches) {
+    final grouped = <String, List<Map<String, dynamic>>>{};
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    final yesterday = today.subtract(const Duration(days: 1));
+
+    for (var batch in batches) {
+      final Timestamp? ts = batch['timestamp'];
+      final date = ts?.toDate() ?? DateTime.now();
+      final checkDate = DateTime(date.year, date.month, date.day);
+
+      String header;
+      if (checkDate == today) {
+        header = "Today";
+      } else if (checkDate == yesterday) {
+        header = "Yesterday";
+      } else {
+        header = DateFormat('dd MMM yyyy').format(date);
+      }
+
+      if (grouped[header] == null) grouped[header] = [];
+      grouped[header]!.add(batch);
+    }
+    return grouped;
+  }
+
+  Future<void> _printBatch(BuildContext context, WidgetRef ref, String batchId,
+      String user, DateTime date) async {
     showDialog(
       context: context,
       barrierDismissible: false,
@@ -109,10 +187,19 @@ class _StockHistoryScreenState extends ConsumerState<StockHistoryScreen> {
     );
 
     try {
-      // Fetch the items exactly as they were recorded
-      final items = await ref.read(inventoryRepositoryProvider).getHistoryBatchItems(batchId);
+      final items = await ref
+          .read(inventoryRepositoryProvider)
+          .getHistoryBatchItems(batchId);
 
       if (mounted) Navigator.pop(context); // Close loader
+
+      if (items.isEmpty) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(content: Text("No items found for this batch.")));
+        }
+        return;
+      }
 
       await ReceivingPdfGenerator.generateBatchReceivingMemo(
         products: items,
@@ -122,7 +209,8 @@ class _StockHistoryScreenState extends ConsumerState<StockHistoryScreen> {
     } catch (e) {
       if (mounted) {
         Navigator.pop(context); // Close loader
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Error: $e")));
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text("Error: $e")));
       }
     }
   }

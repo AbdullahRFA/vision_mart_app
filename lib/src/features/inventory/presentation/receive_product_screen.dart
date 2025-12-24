@@ -324,27 +324,37 @@ class _ReceiveProductScreenState extends ConsumerState<ReceiveProductScreen> {
     );
   }
 
+  // ... imports ...
+
+// ... inside _ReceiveProductScreenState ...
+
   Future<void> _submitBatch() async {
     if (_tempBatchList.isEmpty) return;
+
     setState(() => _isLoading = true);
 
     try {
-      await ref
-          .read(inventoryRepositoryProvider)
-          .receiveBatchProducts(_tempBatchList);
-      final itemsSaved = List<Product>.from(_tempBatchList);
+      // Capture the date used for this batch from the date picker state
       final batchDate = _selectedDate;
+
+      // 👇 UPDATED: Pass batchDate to repository
+      await ref.read(inventoryRepositoryProvider).receiveBatchProducts(_tempBatchList, batchDate);
+
+      final itemsSaved = List<Product>.from(_tempBatchList);
+
       setState(() => _tempBatchList.clear());
+
       if (mounted) _showBatchSuccessDialog(itemsSaved, batchDate);
+
     } catch (e) {
-      if (mounted)
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error: $e'), backgroundColor: Colors.red),
-        );
+      debugPrint("Error: $e");
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: $e'), backgroundColor: Colors.red));
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
   }
+
+// ... rest of the file remains the same ...
 
   void _showBatchSuccessDialog(List<Product> itemsSaved, DateTime batchDate) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
