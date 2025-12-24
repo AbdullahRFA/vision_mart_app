@@ -7,13 +7,14 @@ import '../data/sales_repository.dart';
 import 'pdf_generator.dart';
 
 class SellProductScreen extends ConsumerStatefulWidget {
-  // 1. CHANGED: Made product optional (nullable)
   final Product? product;
   const SellProductScreen({super.key, this.product});
 
   @override
   ConsumerState<SellProductScreen> createState() => _SellProductScreenState();
 }
+
+enum SalesDiscountType { percentage, flat }
 
 class _SellProductScreenState extends ConsumerState<SellProductScreen> {
   final _formKey = GlobalKey<FormState>();
@@ -23,17 +24,26 @@ class _SellProductScreenState extends ConsumerState<SellProductScreen> {
   final _customerPhoneController = TextEditingController();
   final _customerAddressController = TextEditingController();
 
-  // Controller for Partial Payment
+  // Payment
   final _paidAmountController = TextEditingController();
 
   // Item Details
   Product? _selectedProduct;
   final _qtyController = TextEditingController(text: '1');
-  final _discountController = TextEditingController(text: '0');
+
+  // 3-Way Pricing Controllers
+  final _discountPercentController = TextEditingController(text: '0');
+  final _discountAmountController = TextEditingController(text: '0');
+  final _finalPriceController = TextEditingController(text: '0');
+
+  // Focus Nodes for Pricing Logic
+  final _discPercentFocus = FocusNode();
+  final _discAmountFocus = FocusNode();
+  final _finalPriceFocus = FocusNode();
 
   String _paymentStatus = 'Cash';
   DateTime _selectedDate = DateTime.now();
-  double _currentLineTotal = 0.0;
+  SalesDiscountType _discountType = SalesDiscountType.percentage;
   bool _isLoading = false;
 
   final List<CartItem> _cartItems = [];
@@ -41,14 +51,99 @@ class _SellProductScreenState extends ConsumerState<SellProductScreen> {
   @override
   void initState() {
     super.initState();
-    // 2. CHANGED: Initialize with widget.product (which might be null now)
     _selectedProduct = widget.product;
-    _calculateLineTotal();
-    _qtyController.addListener(_calculateLineTotal);
-    _discountController.addListener(_calculateLineTotal);
+
+    // Initial Calc if product passed
+    if (_selectedProduct != null) {
+      _resetPricingFields();
+    }
+
+    // Attach Listeners
+    _qtyController.addListener(_onQtyChanged);
+    _discountPercentController.addListener(_onPercentChanged);
+    _discountAmountController.addListener(_onAmountChanged);
+    _finalPriceController.addListener(_onFinalPriceChanged);
   }
 
-  // Date Picker Logic
+  // --- PRICING LOGIC ---
+
+  void _resetPricingFields() {
+    if (_selectedProduct == null) return;
+    double mrp = _selectedProduct!.marketPrice;
+    int qty = int.tryParse(_qtyController.text) ?? 1;
+    double totalMrp = mrp * qty;
+
+    _finalPriceController.text = totalMrp.toStringAsFixed(0);
+    _discountPercentController.text = '0';
+    _discountAmountController.text = '0';
+  }
+
+  void _onQtyChanged() {
+    // Re-run calculations based on current active field logic, or reset if simple
+    if (_selectedProduct == null) return;
+    // Default: Keep discount %, recalc amounts
+    _onPercentChanged();
+  }
+
+  void _onPercentChanged() {
+    if (!_discPercentFocus.hasFocus && _discPercentFocus.hasPrimaryFocus) return;
+    if (_selectedProduct == null) return;
+
+    double mrp = _selectedProduct!.marketPrice;
+    int qty = int.tryParse(_qtyController.text) ?? 1;
+    double totalMrp = mrp * qty;
+
+    double percent = double.tryParse(_discountPercentController.text) ?? 0;
+
+    double discountAmt = totalMrp * (percent / 100);
+    double finalPrice = totalMrp - discountAmt;
+
+    // Update other fields without triggering their listeners loop
+    if (_discountAmountController.text != discountAmt.toStringAsFixed(0)) {
+      _discountAmountController.text = discountAmt.toStringAsFixed(0);
+    }
+    if (_finalPriceController.text != finalPrice.toStringAsFixed(0)) {
+      _finalPriceController.text = finalPrice.toStringAsFixed(0);
+    }
+  }
+
+  void _onAmountChanged() {
+    if (!_discAmountFocus.hasFocus) return;
+    if (_selectedProduct == null) return;
+
+    double mrp = _selectedProduct!.marketPrice;
+    int qty = int.tryParse(_qtyController.text) ?? 1;
+    double totalMrp = mrp * qty;
+    if (totalMrp == 0) return;
+
+    double discountAmt = double.tryParse(_discountAmountController.text) ?? 0;
+
+    double percent = (discountAmt / totalMrp) * 100;
+    double finalPrice = totalMrp - discountAmt;
+
+    _discountPercentController.text = percent.toStringAsFixed(2);
+    _finalPriceController.text = finalPrice.toStringAsFixed(0);
+  }
+
+  void _onFinalPriceChanged() {
+    if (!_finalPriceFocus.hasFocus) return;
+    if (_selectedProduct == null) return;
+
+    double mrp = _selectedProduct!.marketPrice;
+    int qty = int.tryParse(_qtyController.text) ?? 1;
+    double totalMrp = mrp * qty;
+    if (totalMrp == 0) return;
+
+    double finalPrice = double.tryParse(_finalPriceController.text) ?? 0;
+    double discountAmt = totalMrp - finalPrice;
+    double percent = (discountAmt / totalMrp) * 100;
+
+    _discountAmountController.text = discountAmt.toStringAsFixed(0);
+    _discountPercentController.text = percent.toStringAsFixed(2);
+  }
+
+  // --- END PRICING LOGIC ---
+
   Future<void> _pickDate() async {
     final picked = await showDatePicker(
       context: context,
@@ -61,16 +156,6 @@ class _SellProductScreenState extends ConsumerState<SellProductScreen> {
           picked.year, picked.month, picked.day,
           DateTime.now().hour, DateTime.now().minute
       ));
-    }
-  }
-
-  void _calculateLineTotal() {
-    if (_selectedProduct == null) return;
-    final qty = int.tryParse(_qtyController.text) ?? 0;
-    final discount = double.tryParse(_discountController.text) ?? 0;
-    if (qty > 0) {
-      final unitPrice = _selectedProduct!.marketPrice - (_selectedProduct!.marketPrice * (discount / 100));
-      setState(() => _currentLineTotal = unitPrice * qty);
     }
   }
 
@@ -92,16 +177,15 @@ class _SellProductScreenState extends ConsumerState<SellProductScreen> {
     final item = CartItem(
       product: _selectedProduct!,
       quantity: qty,
-      discountPercent: double.parse(_discountController.text),
-      finalPrice: _currentLineTotal,
+      discountPercent: double.parse(_discountPercentController.text),
+      finalPrice: double.parse(_finalPriceController.text),
     );
 
     setState(() {
       _cartItems.add(item);
+      // Reset for next item
       _qtyController.text = '1';
-      // Optional: Clear selection after add if you prefer
-      // _selectedProduct = null;
-      _calculateLineTotal();
+      _resetPricingFields();
     });
     ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Added to Cart"), duration: Duration(milliseconds: 600)));
   }
@@ -113,11 +197,9 @@ class _SellProductScreenState extends ConsumerState<SellProductScreen> {
       return;
     }
 
-    // 1. Calculate Total Amount
     double totalCartAmount = 0;
     for (var item in _cartItems) totalCartAmount += item.finalPrice;
 
-    // 2. Determine Paid Amount based on Status
     double paidAmount = 0;
     if (_paymentStatus == 'Cash') {
       paidAmount = totalCartAmount;
@@ -125,8 +207,6 @@ class _SellProductScreenState extends ConsumerState<SellProductScreen> {
       paidAmount = 0;
     } else if (_paymentStatus == 'Partial') {
       paidAmount = double.tryParse(_paidAmountController.text) ?? 0;
-
-      // Validation for Partial
       if (paidAmount <= 0 || paidAmount >= totalCartAmount) {
         ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(content: Text("Partial Amount must be greater than 0 and less than Total"))
@@ -135,7 +215,6 @@ class _SellProductScreenState extends ConsumerState<SellProductScreen> {
       }
     }
 
-    // 3. Calculate Due for display/PDF
     double dueAmount = totalCartAmount - paidAmount;
     if(dueAmount < 0) dueAmount = 0;
 
@@ -151,7 +230,6 @@ class _SellProductScreenState extends ConsumerState<SellProductScreen> {
         saleDate: _selectedDate,
       );
 
-      // Capture values for the Success Dialog
       final soldItems = List<CartItem>.from(_cartItems);
       final cName = _customerNameController.text;
       final cPhone = _customerPhoneController.text;
@@ -170,10 +248,10 @@ class _SellProductScreenState extends ConsumerState<SellProductScreen> {
           _paidAmountController.clear();
           _selectedDate = DateTime.now();
           _paymentStatus = 'Cash';
-          _selectedProduct = null; // Reset selection
+          _selectedProduct = null;
+          _resetPricingFields();
         });
 
-        // Pass amounts to the dialog
         _showSuccessDialog(soldItems, cName, cPhone, cAddress, payStatus, sDate, pAmount, dAmount);
       }
     } catch (e) {
@@ -270,16 +348,12 @@ class _SellProductScreenState extends ConsumerState<SellProductScreen> {
                 ],
               ),
               const SizedBox(height: 10),
-
-              // Address Field
               TextFormField(
                 controller: _customerAddressController,
                 style: inputTextStyle,
                 decoration: _inputDecor("Customer Address", Icons.location_on_outlined),
               ),
               const SizedBox(height: 10),
-
-              // DATE PICKER
               InkWell(
                 onTap: _pickDate,
                 borderRadius: BorderRadius.circular(12),
@@ -288,10 +362,7 @@ class _SellProductScreenState extends ConsumerState<SellProductScreen> {
                   child: Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      Text(
-                        DateFormat('dd MMM yyyy').format(_selectedDate),
-                        style: inputTextStyle,
-                      ),
+                      Text(DateFormat('dd MMM yyyy').format(_selectedDate), style: inputTextStyle),
                       Icon(Icons.arrow_drop_down, color: isDark ? Colors.white70 : Colors.grey),
                     ],
                   ),
@@ -300,7 +371,7 @@ class _SellProductScreenState extends ConsumerState<SellProductScreen> {
 
               const SizedBox(height: 20),
 
-              // 2. ADD ITEM SECTION
+              // 2. ADD ITEM (UPDATED PRICING)
               Container(
                 padding: const EdgeInsets.all(16),
                 decoration: BoxDecoration(
@@ -314,12 +385,11 @@ class _SellProductScreenState extends ConsumerState<SellProductScreen> {
                     Text("Add Item to Cart", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: isDark ? Colors.white : Colors.black87)),
                     const SizedBox(height: 12),
 
-                    // Product Dropdown
+                    // Product Selector
                     inventoryAsync.when(
                       data: (products) {
                         return DropdownButtonFormField<Product>(
                           isExpanded: true,
-                          // Ensure selected product is valid in the list
                           value: _selectedProduct != null && products.any((p) => p.id == _selectedProduct!.id)
                               ? products.firstWhere((p) => p.id == _selectedProduct!.id)
                               : null,
@@ -332,16 +402,14 @@ class _SellProductScreenState extends ConsumerState<SellProductScreen> {
                               child: Text(
                                 "${p.model} - ${p.name} (Stock: ${p.currentStock})",
                                 overflow: TextOverflow.ellipsis,
-                                style: TextStyle(
-                                    color: p.currentStock == 0 ? Colors.redAccent : (isDark ? Colors.white : Colors.black87)
-                                ),
+                                style: TextStyle(color: p.currentStock == 0 ? Colors.redAccent : (isDark ? Colors.white : Colors.black87)),
                               ),
                             );
                           }).toList(),
                           onChanged: (p) {
                             setState(() {
                               _selectedProduct = p;
-                              _calculateLineTotal();
+                              _resetPricingFields();
                             });
                           },
                           decoration: _inputDecor("Product"),
@@ -352,7 +420,7 @@ class _SellProductScreenState extends ConsumerState<SellProductScreen> {
                     ),
                     const SizedBox(height: 10),
 
-                    // Qty & Discount
+                    // Qty Row
                     Row(
                       children: [
                         Expanded(
@@ -361,43 +429,70 @@ class _SellProductScreenState extends ConsumerState<SellProductScreen> {
                             keyboardType: TextInputType.number,
                             style: inputTextStyle,
                             decoration: _inputDecor("Qty"),
-                            onChanged: (_) => _calculateLineTotal(),
                             validator: (v) => (int.tryParse(v ?? '0') ?? 0) <= 0 ? 'Invalid' : null,
                           ),
                         ),
                         const SizedBox(width: 10),
-                        Expanded(
-                          child: TextFormField(
-                            controller: _discountController,
-                            keyboardType: TextInputType.number,
-                            style: inputTextStyle,
-                            decoration: _inputDecor("Disc %"),
-                            onChanged: (_) => _calculateLineTotal(),
-                          ),
+                        // Discount Type Toggle
+                        ToggleButtons(
+                          borderRadius: BorderRadius.circular(8),
+                          constraints: const BoxConstraints(minHeight: 48, minWidth: 60),
+                          isSelected: [_discountType == SalesDiscountType.percentage, _discountType == SalesDiscountType.flat],
+                          onPressed: (index) {
+                            setState(() {
+                              _discountType = index == 0 ? SalesDiscountType.percentage : SalesDiscountType.flat;
+                              // Force re-calc just in case field focus logic misses
+                              _onPercentChanged();
+                            });
+                          },
+                          children: const [Text("%"), Text("Tk")],
                         ),
                       ],
                     ),
                     const SizedBox(height: 10),
 
-                    // Item Total & Add Button
+                    // 3-Way Pricing Row
                     Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
-                        Text(
-                            "Total: ৳${_currentLineTotal.toStringAsFixed(0)}",
-                            style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: isDark ? Colors.greenAccent : Theme.of(context).primaryColor)
-                        ),
-                        ElevatedButton.icon(
-                          onPressed: _addToCart,
-                          icon: const Icon(Icons.add_shopping_cart, size: 18),
-                          label: const Text("Add"),
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: isDark ? Colors.green : Theme.of(context).primaryColor,
-                            foregroundColor: Colors.white,
+                        // DISCOUNT INPUT
+                        Expanded(
+                          child: TextFormField(
+                            // Swap controller based on Type
+                            controller: _discountType == SalesDiscountType.percentage ? _discountPercentController : _discountAmountController,
+                            focusNode: _discountType == SalesDiscountType.percentage ? _discPercentFocus : _discAmountFocus,
+                            keyboardType: TextInputType.number,
+                            style: inputTextStyle,
+                            decoration: _inputDecor(_discountType == SalesDiscountType.percentage ? "Disc %" : "Disc Amt"),
                           ),
-                        )
+                        ),
+                        const SizedBox(width: 10),
+
+                        // FINAL PRICE INPUT (Manual Override)
+                        Expanded(
+                          child: TextFormField(
+                            controller: _finalPriceController,
+                            focusNode: _finalPriceFocus,
+                            keyboardType: TextInputType.number,
+                            style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.green),
+                            decoration: _inputDecor("Sold Price"),
+                          ),
+                        ),
                       ],
-                    )
+                    ),
+                    const SizedBox(height: 12),
+
+                    SizedBox(
+                      width: double.infinity,
+                      child: ElevatedButton.icon(
+                        onPressed: _addToCart,
+                        icon: const Icon(Icons.add_shopping_cart),
+                        label: const Text("Add Item"),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: isDark ? Colors.green : Theme.of(context).primaryColor,
+                          foregroundColor: Colors.white,
+                        ),
+                      ),
+                    ),
                   ],
                 ),
               ),
@@ -429,7 +524,7 @@ class _SellProductScreenState extends ConsumerState<SellProductScreen> {
                       ),
                       title: Text(item.product.model, style: TextStyle(fontWeight: FontWeight.bold, color: isDark ? Colors.white : Colors.black87)),
                       subtitle: Text(
-                          "${item.quantity} x ৳${item.product.marketPrice} (-${item.discountPercent}%)",
+                          "${item.quantity} x ৳${item.product.marketPrice} (-${item.discountPercent.toStringAsFixed(1)}%)",
                           style: TextStyle(color: isDark ? Colors.white70 : Colors.grey[700])
                       ),
                       trailing: Row(
@@ -449,7 +544,7 @@ class _SellProductScreenState extends ConsumerState<SellProductScreen> {
 
               const SizedBox(height: 20),
 
-              // 4. CHECKOUT
+              // 4. PAYMENT
               _SectionHeader(title: "Payment Info", icon: Icons.payment),
               const SizedBox(height: 10),
 
@@ -457,13 +552,11 @@ class _SellProductScreenState extends ConsumerState<SellProductScreen> {
                 value: _paymentStatus,
                 dropdownColor: isDark ? const Color(0xFF1E293B) : Colors.white,
                 style: inputTextStyle,
-                // Partial Added
                 items: ['Cash', 'Due', 'Partial'].map((e) => DropdownMenuItem(value: e, child: Text(e, style: inputTextStyle))).toList(),
                 onChanged: (v) => setState(() => _paymentStatus = v!),
                 decoration: _inputDecor("Payment Type", Icons.payment),
               ),
 
-              // Conditional Paid Amount Field
               if (_paymentStatus == 'Partial') ...[
                 const SizedBox(height: 10),
                 TextFormField(
