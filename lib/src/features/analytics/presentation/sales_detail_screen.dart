@@ -3,9 +3,10 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import '../../sales/presentation/pdf_generator.dart';
-import '../../sales/data/sales_repository.dart'; // For CartItem class
-import '../../inventory/domain/product_model.dart'; // For Product class
+import '../../sales/data/sales_repository.dart';
+import '../../inventory/domain/product_model.dart';
 import '../data/analytics_repository.dart';
+import '../../sales/presentation/sell_product_screen.dart';
 
 class SalesDetailScreen extends ConsumerStatefulWidget {
   final Map<String, dynamic> invoice;
@@ -26,12 +27,67 @@ class _SalesDetailScreenState extends ConsumerState<SalesDetailScreen> {
     _itemsFuture = ref.read(analyticsRepositoryProvider).getInvoiceItems(invoiceId);
   }
 
+  void _navigateToEdit() async {
+    final items = await _itemsFuture;
+    if (!mounted) return;
+
+    Navigator.push(
+        context,
+        MaterialPageRoute(builder: (_) => SellProductScreen(
+            existingInvoice: widget.invoice,
+            existingItems: items
+        ))
+    );
+  }
+
+  // 👇 NEW: Confirm & Delete Logic
+  void _confirmDelete() {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text("Delete Invoice?"),
+        content: const Text("This will permanently remove this sale record and RESTORE stock quantity to inventory.\n\nAre you sure?"),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: Text("Cancel", style: TextStyle(color: isDark ? Colors.white60 : Colors.grey)),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.red, foregroundColor: Colors.white),
+            onPressed: () async {
+              Navigator.pop(ctx);
+              await _deleteInvoice();
+            },
+            child: const Text("Delete & Restore Stock"),
+          )
+        ],
+      ),
+    );
+  }
+
+  Future<void> _deleteInvoice() async {
+    try {
+      final invoiceId = widget.invoice['id'] ?? widget.invoice['invoiceId'];
+      // Call Repository to delete and restore stock
+      await ref.read(salesRepositoryProvider).deleteInvoice(invoiceId);
+
+      if (mounted) {
+        Navigator.pop(context); // Exit Detail Screen
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Invoice Deleted & Stock Restored")));
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Error: $e"), backgroundColor: Colors.red));
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final invoice = widget.invoice;
 
-    // Parse Invoice Data
     final timestamp = invoice['timestamp'] as Timestamp?;
     final date = timestamp?.toDate() ?? DateTime.now();
     final invoiceId = invoice['id'] ?? 'Unknown';
@@ -39,15 +95,29 @@ class _SalesDetailScreenState extends ConsumerState<SalesDetailScreen> {
     final customerPhone = invoice['customerPhone'] ?? 'N/A';
     final customerAddress = invoice['customerAddress'] ?? 'N/A';
 
-    // Financials
     final totalAmount = (invoice['totalAmount'] ?? 0).toDouble();
     final paidAmount = (invoice['paidAmount'] ?? 0).toDouble();
     final dueAmount = (invoice['dueAmount'] ?? 0).toDouble();
     final totalProfit = (invoice['totalProfit'] ?? 0).toDouble();
-    final paymentStatus = invoice['paymentStatus'] ?? 'Cash';
 
     return Scaffold(
-      appBar: AppBar(title: const Text("Invoice Details")),
+      appBar: AppBar(
+        title: const Text("Invoice Details"),
+        actions: [
+          // Edit Button
+          IconButton(
+            icon: const Icon(Icons.edit_note, color: Colors.orange),
+            tooltip: "Correct Mistake (Edit)",
+            onPressed: _navigateToEdit,
+          ),
+          // 👇 NEW: Delete Button
+          IconButton(
+            icon: const Icon(Icons.delete_forever, color: Colors.red),
+            tooltip: "Delete Sale",
+            onPressed: _confirmDelete,
+          ),
+        ],
+      ),
       floatingActionButton: FloatingActionButton.extended(
         onPressed: () => _printPdf(context, invoice, date),
         icon: const Icon(Icons.print),
@@ -160,7 +230,7 @@ class _SalesDetailScreenState extends ConsumerState<SalesDetailScreen> {
             ),
             const SizedBox(height: 16),
 
-            // 4. FINANCIAL SUMMARY (Admin Only)
+            // 4. FINANCIAL SUMMARY
             _DetailSection(
               title: "Payment Details",
               icon: Icons.receipt_long_rounded,
@@ -180,11 +250,9 @@ class _SalesDetailScreenState extends ConsumerState<SalesDetailScreen> {
     );
   }
 
-  // Helper to re-construct CartItems for PDF
   Future<void> _printPdf(BuildContext context, Map<String, dynamic> invoice, DateTime date) async {
     final itemsData = await _itemsFuture;
 
-    // Convert Map items back to CartItem objects for the PDF generator
     final cartItems = itemsData.map((data) {
       return CartItem(
           product: Product(
@@ -192,10 +260,10 @@ class _SalesDetailScreenState extends ConsumerState<SalesDetailScreen> {
             name: data['productName'] ?? '',
             model: data['productModel'] ?? '',
             category: data['category'] ?? '',
-            capacity: '', // Info might not be in sale record
+            capacity: '',
             marketPrice: (data['mrp'] ?? 0).toDouble(),
-            commissionPercent: 0, // Not needed for customer invoice
-            buyingPrice: 0, // Not needed for customer invoice
+            commissionPercent: 0,
+            buyingPrice: 0,
             currentStock: 0,
           ),
           quantity: (data['quantity'] ?? 1).toInt(),

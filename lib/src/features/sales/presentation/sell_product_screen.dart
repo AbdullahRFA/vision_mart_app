@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import '../../inventory/domain/product_model.dart';
 import '../../inventory/data/inventory_repository.dart';
 import '../data/sales_repository.dart';
@@ -8,7 +9,16 @@ import 'pdf_generator.dart';
 
 class SellProductScreen extends ConsumerStatefulWidget {
   final Product? product;
-  const SellProductScreen({super.key, this.product});
+  // Optional params for Editing
+  final Map<String, dynamic>? existingInvoice;
+  final List<Map<String, dynamic>>? existingItems;
+
+  const SellProductScreen({
+    super.key,
+    this.product,
+    this.existingInvoice,
+    this.existingItems,
+  });
 
   @override
   ConsumerState<SellProductScreen> createState() => _SellProductScreenState();
@@ -58,11 +68,72 @@ class _SellProductScreenState extends ConsumerState<SellProductScreen> {
       _resetPricingFields();
     }
 
+    // CHECK FOR EDIT MODE
+    if (widget.existingInvoice != null && widget.existingItems != null) {
+      _loadExistingData();
+    }
+
     // Attach Listeners
     _qtyController.addListener(_onQtyChanged);
     _discountPercentController.addListener(_onPercentChanged);
     _discountAmountController.addListener(_onAmountChanged);
     _finalPriceController.addListener(_onFinalPriceChanged);
+  }
+
+  // LOAD DATA FOR EDITING
+  void _loadExistingData() async {
+    final invoice = widget.existingInvoice!;
+
+    // 1. Populate Customer & Payment Info
+    _customerNameController.text = invoice['customerName'] ?? '';
+    _customerPhoneController.text = invoice['customerPhone'] ?? '';
+    _customerAddressController.text = invoice['customerAddress'] ?? '';
+    _paymentStatus = invoice['paymentStatus'] ?? 'Cash';
+    _paidAmountController.text = (invoice['paidAmount'] ?? 0).toString();
+
+    // 2. Handle Date
+    if (invoice['timestamp'] != null) {
+      try {
+        final ts = invoice['timestamp'];
+        if (ts is Timestamp) _selectedDate = ts.toDate();
+      } catch (e) {
+        _selectedDate = DateTime.now();
+      }
+    }
+
+    // 3. Reconstruct Cart Items
+    // We need real Product objects to check stock limits and get buying prices
+    final allProducts = await ref.read(inventoryStreamProvider.future);
+
+    if (mounted) {
+      setState(() {
+        for (var itemData in widget.existingItems!) {
+          final productId = itemData['productId'];
+          // Find product in current inventory or create placeholder if deleted
+          final product = allProducts.firstWhere(
+                (p) => p.id == productId,
+            orElse: () => Product(
+                id: productId,
+                name: itemData['productName'] ?? 'Unknown',
+                model: itemData['productModel'] ?? '',
+                category: 'Unknown',
+                capacity: '',
+                marketPrice: (itemData['mrp'] ?? 0).toDouble(),
+                commissionPercent: 0,
+                buyingPrice: 0,
+                currentStock: 0 // Stock might be 0 until restored
+            ),
+          );
+
+          _cartItems.add(CartItem(
+            product: product,
+            quantity: (itemData['quantity'] ?? 1).toInt(),
+            discountPercent: (itemData['discountPercent'] ?? 0).toDouble(),
+            finalPrice: (itemData['totalAmount'] ?? 0).toDouble(),
+          ));
+        }
+      });
+    }
   }
 
   // --- PRICING LOGIC ---
@@ -80,23 +151,11 @@ class _SellProductScreenState extends ConsumerState<SellProductScreen> {
 
   void _onQtyChanged() {
     if (_selectedProduct == null) return;
-    // When qty changes, we generally want to keep the same discount % and recalc the rest
-    // Temporarily treat as if percent changed to refresh calculations
-    double mrp = _selectedProduct!.marketPrice;
-    int qty = int.tryParse(_qtyController.text) ?? 1;
-    double totalMrp = mrp * qty;
-
-    double percent = double.tryParse(_discountPercentController.text) ?? 0;
-    double discountAmt = totalMrp * (percent / 100);
-    double finalPrice = totalMrp - discountAmt;
-
-    _discountAmountController.text = discountAmt.toStringAsFixed(0);
-    _finalPriceController.text = finalPrice.toStringAsFixed(0);
+    _onPercentChanged();
   }
 
   void _onPercentChanged() {
-    // 🛑 FIX: Only run if THIS field has focus. Prevents overwriting user input in other fields.
-    if (!_discPercentFocus.hasFocus) return;
+    if (!_discPercentFocus.hasFocus && _discPercentFocus.hasPrimaryFocus) return;
     if (_selectedProduct == null) return;
 
     double mrp = _selectedProduct!.marketPrice;
@@ -108,12 +167,15 @@ class _SellProductScreenState extends ConsumerState<SellProductScreen> {
     double discountAmt = totalMrp * (percent / 100);
     double finalPrice = totalMrp - discountAmt;
 
-    _discountAmountController.text = discountAmt.toStringAsFixed(0);
-    _finalPriceController.text = finalPrice.toStringAsFixed(0);
+    if (_discountAmountController.text != discountAmt.toStringAsFixed(0)) {
+      _discountAmountController.text = discountAmt.toStringAsFixed(0);
+    }
+    if (_finalPriceController.text != finalPrice.toStringAsFixed(0)) {
+      _finalPriceController.text = finalPrice.toStringAsFixed(0);
+    }
   }
 
   void _onAmountChanged() {
-    // 🛑 FIX: Only run if THIS field has focus.
     if (!_discAmountFocus.hasFocus) return;
     if (_selectedProduct == null) return;
 
@@ -127,13 +189,11 @@ class _SellProductScreenState extends ConsumerState<SellProductScreen> {
     double percent = (discountAmt / totalMrp) * 100;
     double finalPrice = totalMrp - discountAmt;
 
-    // Update Percentage and Final Price
     _discountPercentController.text = percent.toStringAsFixed(2);
     _finalPriceController.text = finalPrice.toStringAsFixed(0);
   }
 
   void _onFinalPriceChanged() {
-    // 🛑 FIX: Only run if THIS field has focus.
     if (!_finalPriceFocus.hasFocus) return;
     if (_selectedProduct == null) return;
 
@@ -154,23 +214,15 @@ class _SellProductScreenState extends ConsumerState<SellProductScreen> {
   void _editCartItem(int index) {
     final item = _cartItems[index];
     setState(() {
-      // 1. Remove from list
       _cartItems.removeAt(index);
-
-      // 2. Load into inputs
       _selectedProduct = item.product;
       _qtyController.text = item.quantity.toString();
-
-      // 3. Set Pricing (Calculated fields need to sync)
       _finalPriceController.text = item.finalPrice.toStringAsFixed(0);
       _discountPercentController.text = item.discountPercent.toStringAsFixed(2);
 
-      // Calculate missing Discount Amount for the form
       double totalMrp = item.product.marketPrice * item.quantity;
       double distAmt = totalMrp - item.finalPrice;
       _discountAmountController.text = distAmt.toStringAsFixed(0);
-
-      // 4. Reset Type to Percent (default) or keep logic simple
       _discountType = SalesDiscountType.percentage;
     });
 
@@ -178,8 +230,6 @@ class _SellProductScreenState extends ConsumerState<SellProductScreen> {
       SnackBar(content: Text("Editing ${item.product.model}..."), duration: const Duration(milliseconds: 600)),
     );
   }
-
-  // --- END LOGIC ---
 
   Future<void> _pickDate() async {
     final picked = await showDatePicker(
@@ -204,7 +254,9 @@ class _SellProductScreenState extends ConsumerState<SellProductScreen> {
     }
 
     final qty = int.parse(_qtyController.text);
-    if (qty > _selectedProduct!.currentStock) {
+
+    // In edit mode, we skip local stock check warning because stock is yet to be restored
+    if (qty > _selectedProduct!.currentStock && widget.existingInvoice == null) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('Insufficient Stock! Max: ${_selectedProduct!.currentStock}'), backgroundColor: Colors.red),
       );
@@ -220,9 +272,8 @@ class _SellProductScreenState extends ConsumerState<SellProductScreen> {
 
     setState(() {
       _cartItems.add(item);
-      // Reset for next item
       _qtyController.text = '1';
-      _selectedProduct = null; // Clear selection after adding
+      _selectedProduct = null;
       _finalPriceController.text = '0';
       _discountPercentController.text = '0';
       _discountAmountController.text = '0';
@@ -260,6 +311,15 @@ class _SellProductScreenState extends ConsumerState<SellProductScreen> {
 
     setState(() => _isLoading = true);
     try {
+      // 1. IF UPDATING: Delete Old Invoice First (Restores Stock)
+      // This is awaited, so it completes before we try to sell again
+      if (widget.existingInvoice != null) {
+        final oldInvoiceId = widget.existingInvoice!['id'];
+        await ref.read(salesRepositoryProvider).deleteInvoiceAndRestoreStock(oldInvoiceId);
+      }
+
+      // 2. Create New Sale (Checks & Deducts Stock)
+      // Since stock is restored in step 1, this will now succeed even for sold-out items
       await ref.read(salesRepositoryProvider).sellBatchProducts(
         items: _cartItems,
         customerName: _customerNameController.text.trim(),
@@ -280,21 +340,28 @@ class _SellProductScreenState extends ConsumerState<SellProductScreen> {
       final dAmount = dueAmount;
 
       if (mounted) {
-        setState(() {
-          _cartItems.clear();
-          _customerNameController.clear();
-          _customerPhoneController.clear();
-          _customerAddressController.clear();
-          _paidAmountController.clear();
-          _selectedDate = DateTime.now();
-          _paymentStatus = 'Cash';
-          _selectedProduct = null;
-          _resetPricingFields();
-        });
-
-        _showSuccessDialog(soldItems, cName, cPhone, cAddress, payStatus, sDate, pAmount, dAmount);
+        if (widget.existingInvoice != null) {
+          Navigator.pop(context); // Close Sell Screen
+          Navigator.pop(context); // Close Detail Screen
+          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Invoice Updated Successfully")));
+        } else {
+          setState(() {
+            _cartItems.clear();
+            _customerNameController.clear();
+            _customerPhoneController.clear();
+            _customerAddressController.clear();
+            _paidAmountController.clear();
+            _selectedDate = DateTime.now();
+            _paymentStatus = 'Cash';
+            _selectedProduct = null;
+            _resetPricingFields();
+          });
+          _showSuccessDialog(soldItems, cName, cPhone, cAddress, payStatus, sDate, pAmount, dAmount);
+        }
       }
     } catch (e) {
+      // 👇 PRINT ERROR TO CONSOLE
+      debugPrint('Error updating/processing invoice: $e');
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: $e')));
     } finally {
       if (mounted) setState(() => _isLoading = false);
@@ -348,12 +415,13 @@ class _SellProductScreenState extends ConsumerState<SellProductScreen> {
     final inventoryAsync = ref.watch(inventoryStreamProvider);
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final inputTextStyle = TextStyle(color: isDark ? Colors.white : Colors.black87);
+    final isEditing = widget.existingInvoice != null;
 
     double cartTotal = 0;
     for (var i in _cartItems) cartTotal += i.finalPrice;
 
     return Scaffold(
-      appBar: AppBar(title: const Text("New Sale (POS)")),
+      appBar: AppBar(title: Text(isEditing ? "Edit Invoice (Correction)" : "New Sale (POS)")),
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(20),
         child: Form(
@@ -481,7 +549,7 @@ class _SellProductScreenState extends ConsumerState<SellProductScreen> {
                           onPressed: (index) {
                             setState(() {
                               _discountType = index == 0 ? SalesDiscountType.percentage : SalesDiscountType.flat;
-                              // Force re-calc
+                              // Force re-calc just in case field focus logic misses
                               _onPercentChanged();
                             });
                           },
@@ -567,19 +635,16 @@ class _SellProductScreenState extends ConsumerState<SellProductScreen> {
                           "${item.quantity} x ৳${item.product.marketPrice} (-${item.discountPercent.toStringAsFixed(1)}%)",
                           style: TextStyle(color: isDark ? Colors.white70 : Colors.grey[700])
                       ),
-                      // 🆕 UPDATED TRAILING: Edit & Delete buttons
                       trailing: Row(
                         mainAxisSize: MainAxisSize.min,
                         children: [
                           Text("৳${item.finalPrice.toStringAsFixed(0)}", style: TextStyle(fontWeight: FontWeight.bold, color: isDark ? Colors.greenAccent : Colors.black)),
                           const SizedBox(width: 8),
-                          // Edit Button
                           IconButton(
                             icon: const Icon(Icons.edit, color: Colors.blue, size: 20),
                             onPressed: () => _editCartItem(index),
                             tooltip: "Edit Item",
                           ),
-                          // Delete Button
                           IconButton(
                             icon: const Icon(Icons.delete_outline, color: Colors.redAccent, size: 20),
                             onPressed: () => setState(() => _cartItems.removeAt(index)),
@@ -646,12 +711,12 @@ class _SellProductScreenState extends ConsumerState<SellProductScreen> {
                 height: 50,
                 child: ElevatedButton.icon(
                   onPressed: (_isLoading || _cartItems.isEmpty) ? null : _processBatchSale,
-                  icon: const Icon(Icons.check_circle),
+                  icon: Icon(isEditing ? Icons.update : Icons.check_circle),
                   label: _isLoading
                       ? const CircularProgressIndicator(color: Colors.white)
-                      : const Text("CONFIRM BATCH SALE"),
+                      : Text(isEditing ? "UPDATE INVOICE (CORRECT MISTAKE)" : "CONFIRM BATCH SALE"),
                   style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.green,
+                    backgroundColor: isEditing ? Colors.orange : Colors.green,
                     foregroundColor: Colors.white,
                     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                   ),
