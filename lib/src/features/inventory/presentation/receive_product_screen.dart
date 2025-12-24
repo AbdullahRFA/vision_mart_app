@@ -26,7 +26,7 @@ class _ReceiveProductScreenState extends ConsumerState<ReceiveProductScreen> {
   final _qtyController = TextEditingController();
   final _mrpController = TextEditingController();
   final _commissionController =
-      TextEditingController(); // Acts as Disc % OR Flat Amt
+  TextEditingController(); // Acts as Disc % OR Flat Amt
   final _buyingPriceController = TextEditingController(); // 👈 New Manual Field
 
   // Focus Nodes (To prevent circular calc loops)
@@ -61,103 +61,55 @@ class _ReceiveProductScreenState extends ConsumerState<ReceiveProductScreen> {
     'Refrigerator & Freezer': {
       // VCM Refrigerator
       '50L': 16000,
-
       '101L V.Box': 20100,
-
       '121L': 19300,
-
       '142L TM': 28400,
-
       '160L BM': 28400,
-
       '222L BM': 35900,
-
       '238L BM': 38200,
-
       '240L TM': 38200,
-
       '252L BM': 39100,
-
       '262L TM': 40200,
-
       // GD Refrigerator
       '135L With Canopy': 36400,
-
       '135L Without Canopy': 33900,
-
       '142G TM': 30700,
-
       '150G TM': 32100,
-
       '160G BM': 32100,
-
       '180G TM': 38000,
-
       '185G BM': 38800,
-
       '191G TM': 31300,
-
       '196G BM': 39100,
-
       '200G TM': 40100,
-
       '216G BM': 40900,
-
       '217G TM': 40900,
-
       '221G BM': 32800,
-
       '222G TM': 41100,
-
       '238G BM': 42900,
-
       '240G TM': 42900,
-
       '242G TM': 43200,
-
       '252G BM': 44400,
-
       '262G TM': 44700,
-
       '275L Bevg': 62300,
-
       '280G TM': 47700,
-
       '238G Smart BM': 44000,
-
       '252G Smart BM': 45400,
-
       '305G TM': 51300,
-
       '330G BM': 54600,
-
       '330G BM Water Dis.': 56600,
-
       '356G TM': 55600,
-
       '285L NF': 61300,
-
       '309L NF': 63400,
-
       '566G SBS NF': 88400,
-
       // Chest Freezer
       '112L GD': 28700,
-
       '150L GD': 32100,
-
       '250L GD': 42600,
-
       '350L GD': 48900,
-
       '158L Ice': 42600,
-
       '368L Ice': 62900,
-
       '568L Ice': 90500,
-
       '150L GD SMT': 33900,
-
       '250L GD SMT': 43700,
     },
     'Television': {
@@ -336,6 +288,42 @@ class _ReceiveProductScreenState extends ConsumerState<ReceiveProductScreen> {
     );
   }
 
+  // ---------------------------------------------------
+  // NEW: Function to Edit an Item from the Cart List
+  // ---------------------------------------------------
+  void _editItem(int index) {
+    final item = _tempBatchList[index];
+
+    setState(() {
+      // 1. Remove from list to pull back into form
+      _tempBatchList.removeAt(index);
+
+      // 2. Populate Form Fields with Item Data
+      _selectedCategory = item.category;
+      _nameController.text = item.name;
+      _modelController.text = item.model;
+      _capacityController.text = item.capacity;
+      _colorController.text = item.color;
+      _qtyController.text = item.currentStock.toString();
+      _mrpController.text = item.marketPrice.toStringAsFixed(0);
+      _buyingPriceController.text = item.buyingPrice.toStringAsFixed(0);
+
+      // FIXED: Handle nullable item.lastUpdated with a fallback
+      _selectedDate = item.lastUpdated ?? DateTime.now();
+
+      // 3. Restore Commission (Defaulting to Percentage view)
+      _discountType = DiscountType.percentage;
+      _commissionController.text = item.commissionPercent.toStringAsFixed(2);
+    });
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text("Editing ${item.model}..."),
+        duration: const Duration(milliseconds: 800),
+      ),
+    );
+  }
+
   Future<void> _submitBatch() async {
     if (_tempBatchList.isEmpty) return;
     setState(() => _isLoading = true);
@@ -451,13 +439,13 @@ class _ReceiveProductScreenState extends ConsumerState<ReceiveProductScreen> {
                             items: _categoryOptions
                                 .map(
                                   (c) => DropdownMenuItem(
-                                    value: c,
-                                    child: Text(
-                                      c,
-                                      overflow: TextOverflow.ellipsis,
-                                    ),
-                                  ),
-                                )
+                                value: c,
+                                child: Text(
+                                  c,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                              ),
+                            )
                                 .toList(),
                             onChanged: (v) =>
                                 setState(() => _selectedCategory = v),
@@ -476,17 +464,17 @@ class _ReceiveProductScreenState extends ConsumerState<ReceiveProductScreen> {
                               final models =
                                   _predefinedData[_selectedCategory]?.keys
                                       .toList() ??
-                                  [];
+                                      [];
                               if (val.text.isEmpty) return models;
                               return models.where(
-                                (o) => o.toLowerCase().contains(
+                                    (o) => o.toLowerCase().contains(
                                   val.text.toLowerCase(),
                                 ),
                               );
                             },
                             onSelected: (String selection) {
                               final price =
-                                  _predefinedData[_selectedCategory]?[selection];
+                              _predefinedData[_selectedCategory]?[selection];
                               if (price != null) {
                                 _mrpController.text = price.toStringAsFixed(0);
                                 // Trigger calculation if comm/buy price is already filled
@@ -770,14 +758,27 @@ class _ReceiveProductScreenState extends ConsumerState<ReceiveProductScreen> {
                                   color: isDark ? Colors.white70 : Colors.grey,
                                 ),
                               ),
-                              trailing: IconButton(
-                                icon: const Icon(
-                                  Icons.delete,
-                                  color: Colors.red,
-                                ),
-                                onPressed: () => setState(
-                                  () => _tempBatchList.removeAt(idx),
-                                ),
+                              // MODIFIED: Edit and Delete Buttons
+                              trailing: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  IconButton(
+                                    icon: const Icon(
+                                      Icons.edit,
+                                      color: Colors.blue,
+                                    ),
+                                    onPressed: () => _editItem(idx),
+                                  ),
+                                  IconButton(
+                                    icon: const Icon(
+                                      Icons.delete,
+                                      color: Colors.red,
+                                    ),
+                                    onPressed: () => setState(
+                                          () => _tempBatchList.removeAt(idx),
+                                    ),
+                                  ),
+                                ],
                               ),
                             ),
                           );
