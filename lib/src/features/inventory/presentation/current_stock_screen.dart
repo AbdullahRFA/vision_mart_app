@@ -256,6 +256,29 @@ class _CategoryStockCard extends StatelessWidget {
                   trailing: Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
+                      // --- NEW: Commission Info ---
+                      Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        crossAxisAlignment: CrossAxisAlignment.end,
+                        children: [
+                          Text(
+                            "Comm",
+                            style: TextStyle(
+                                fontSize: 10,
+                                color: isDark ? Colors.white38 : Colors.grey[500]),
+                          ),
+                          Text(
+                            "${p.commissionPercent.toStringAsFixed(0)}%",
+                            style: const TextStyle(
+                              fontSize: 13,
+                              fontWeight: FontWeight.w600,
+                              color: Colors.blue, // Distinct color for commission
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(width: 12),
+
                       // MRP Info
                       Column(
                         mainAxisAlignment: MainAxisAlignment.center,

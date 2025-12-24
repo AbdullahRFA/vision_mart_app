@@ -45,35 +45,19 @@ class _StockHistoryScreenState extends ConsumerState<StockHistoryScreen> {
       ),
       body: historyAsync.when(
         data: (batches) {
-          // 1. Client-side Filtering
           final filteredBatches = batches.where((batch) {
             if (batch['type'] != 'INWARD_CHALLAN') return false;
             if (_selectedRange == null) return true;
-
             final Timestamp? ts = batch['timestamp'];
             final date = ts?.toDate() ?? DateTime.now();
-
-            return date.isAfter(
-                _selectedRange!.start.subtract(const Duration(seconds: 1))) &&
-                date.isBefore(
-                    _selectedRange!.end.add(const Duration(days: 1)));
+            return date.isAfter(_selectedRange!.start.subtract(const Duration(seconds: 1))) &&
+                date.isBefore(_selectedRange!.end.add(const Duration(days: 1)));
           }).toList();
 
           if (filteredBatches.isEmpty) {
-            return Center(
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Icon(Icons.history_toggle_off,
-                      size: 60, color: Colors.grey.withOpacity(0.5)),
-                  const SizedBox(height: 10),
-                  const Text("No Stock History found"),
-                ],
-              ),
-            );
+            return const Center(child: Text("No Stock History found."));
           }
 
-          // 2. Group by Date
           final groupedBatches = _groupBatchesByDate(filteredBatches);
 
           return ListView.builder(
@@ -86,7 +70,6 @@ class _StockHistoryScreenState extends ConsumerState<StockHistoryScreen> {
               return Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  // Date Header
                   Padding(
                     padding: const EdgeInsets.symmetric(vertical: 12.0, horizontal: 4),
                     child: Text(
@@ -99,7 +82,6 @@ class _StockHistoryScreenState extends ConsumerState<StockHistoryScreen> {
                       ),
                     ),
                   ),
-                  // List of Batches for this Date
                   ...dayBatches.map((batch) {
                     final Timestamp? ts = batch['timestamp'];
                     final date = ts?.toDate() ?? DateTime.now();
@@ -114,27 +96,26 @@ class _StockHistoryScreenState extends ConsumerState<StockHistoryScreen> {
                       child: ListTile(
                         leading: CircleAvatar(
                           backgroundColor: Colors.purple.withOpacity(0.1),
-                          child:
-                          const Icon(Icons.move_to_inbox_rounded, color: Colors.purple),
+                          child: const Icon(Icons.move_to_inbox_rounded, color: Colors.purple),
                         ),
-                        title: Text(
-                          "Received at $timeStr",
-                          style: TextStyle(
-                              fontWeight: FontWeight.bold,
-                              color: isDark ? Colors.white : Colors.black87),
-                        ),
-                        subtitle: Text(
-                          "$itemCount items by $createdBy",
-                          style: TextStyle(
-                              color: isDark ? Colors.white70 : Colors.grey[600]),
-                        ),
-                        trailing: IconButton(
-                          icon: const Icon(Icons.print, color: Colors.green),
-                          tooltip: "Print Memo",
-                          onPressed: () async {
-                            _printBatch(
-                                context, ref, batch['id'], createdBy, date);
-                          },
+                        title: Text("Received at $timeStr", style: TextStyle(fontWeight: FontWeight.bold, color: isDark ? Colors.white : Colors.black87)),
+                        subtitle: Text("$itemCount items by $createdBy", style: TextStyle(color: isDark ? Colors.white70 : Colors.grey[600])),
+                        trailing: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            // 1. VIEW/EDIT BUTTON
+                            IconButton(
+                              icon: const Icon(Icons.edit_note, color: Colors.blue),
+                              tooltip: "View/Edit Items",
+                              onPressed: () => _showBatchItems(context, batch['id']),
+                            ),
+                            // 2. PRINT BUTTON
+                            IconButton(
+                              icon: const Icon(Icons.print, color: Colors.green),
+                              tooltip: "Print Memo",
+                              onPressed: () => _printBatch(context, ref, batch['id'], createdBy, date),
+                            ),
+                          ],
                         ),
                       ),
                     );
@@ -150,9 +131,17 @@ class _StockHistoryScreenState extends ConsumerState<StockHistoryScreen> {
     );
   }
 
-  // Helper to group items map keys
-  Map<String, List<Map<String, dynamic>>> _groupBatchesByDate(
-      List<Map<String, dynamic>> batches) {
+  // --- SHOW BATCH ITEMS & EDIT ---
+  void _showBatchItems(BuildContext context, String batchId) {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      builder: (ctx) => _BatchItemsSheet(batchId: batchId),
+    );
+  }
+
+  // ... (existing _groupBatchesByDate & _printBatch methods) ...
+  Map<String, List<Map<String, dynamic>>> _groupBatchesByDate(List<Map<String, dynamic>> batches) {
     final grouped = <String, List<Map<String, dynamic>>>{};
     final now = DateTime.now();
     final today = DateTime(now.year, now.month, now.day);
@@ -164,13 +153,9 @@ class _StockHistoryScreenState extends ConsumerState<StockHistoryScreen> {
       final checkDate = DateTime(date.year, date.month, date.day);
 
       String header;
-      if (checkDate == today) {
-        header = "Today";
-      } else if (checkDate == yesterday) {
-        header = "Yesterday";
-      } else {
-        header = DateFormat('dd MMM yyyy').format(date);
-      }
+      if (checkDate == today) header = "Today";
+      else if (checkDate == yesterday) header = "Yesterday";
+      else header = DateFormat('dd MMM yyyy').format(date);
 
       if (grouped[header] == null) grouped[header] = [];
       grouped[header]!.add(batch);
@@ -178,40 +163,125 @@ class _StockHistoryScreenState extends ConsumerState<StockHistoryScreen> {
     return grouped;
   }
 
-  Future<void> _printBatch(BuildContext context, WidgetRef ref, String batchId,
-      String user, DateTime date) async {
-    showDialog(
-      context: context,
-      barrierDismissible: false,
-      builder: (_) => const Center(child: CircularProgressIndicator()),
-    );
-
+  Future<void> _printBatch(BuildContext context, WidgetRef ref, String batchId, String user, DateTime date) async {
+    showDialog(context: context, barrierDismissible: false, builder: (_) => const Center(child: CircularProgressIndicator()));
     try {
-      final items = await ref
-          .read(inventoryRepositoryProvider)
-          .getHistoryBatchItems(batchId);
-
-      if (mounted) Navigator.pop(context); // Close loader
-
+      final items = await ref.read(inventoryRepositoryProvider).getHistoryBatchItems(batchId);
+      if (mounted) Navigator.pop(context);
       if (items.isEmpty) {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(content: Text("No items found for this batch.")));
-        }
+        if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("No items found.")));
         return;
       }
-
-      await ReceivingPdfGenerator.generateBatchReceivingMemo(
-        products: items,
-        receivedBy: user,
-        receivingDate: date,
-      );
+      await ReceivingPdfGenerator.generateBatchReceivingMemo(products: items, receivedBy: user, receivingDate: date);
     } catch (e) {
       if (mounted) {
-        Navigator.pop(context); // Close loader
-        ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text("Error: $e")));
+        Navigator.pop(context);
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Error: $e")));
       }
     }
+  }
+}
+
+// --- NEW WIDGET: Batch Items Sheet with Edit ---
+class _BatchItemsSheet extends ConsumerWidget {
+  final String batchId;
+  const _BatchItemsSheet({required this.batchId});
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    return DraggableScrollableSheet(
+      initialChildSize: 0.7,
+      maxChildSize: 0.9,
+      builder: (_, scrollController) {
+        return Container(
+          padding: const EdgeInsets.all(16),
+          color: Theme.of(context).scaffoldBackgroundColor,
+          child: FutureBuilder<List<Map<String, dynamic>>>(
+            future: ref.read(inventoryRepositoryProvider).getHistoryBatchLogs(batchId),
+            builder: (context, snapshot) {
+              if (snapshot.connectionState == ConnectionState.waiting) return const Center(child: CircularProgressIndicator());
+              if (!snapshot.hasData || snapshot.data!.isEmpty) return const Center(child: Text("No items found"));
+
+              final items = snapshot.data!;
+              return ListView.separated(
+                controller: scrollController,
+                itemCount: items.length,
+                separatorBuilder: (_, __) => const Divider(),
+                itemBuilder: (ctx, index) {
+                  final item = items[index];
+                  return ListTile(
+                    title: Text("${item['productModel']} - ${item['productName']}", style: const TextStyle(fontWeight: FontWeight.bold)),
+                    subtitle: Text("Qty: ${item['quantityAdded']} | MRP: ${item['marketPrice']} | Comm: ${item['commissionPercent']}%"),
+                    trailing: IconButton(
+                      icon: const Icon(Icons.edit, color: Colors.blue),
+                      onPressed: () => _showCorrectionDialog(context, ref, item),
+                    ),
+                  );
+                },
+              );
+            },
+          ),
+        );
+      },
+    );
+  }
+
+  void _showCorrectionDialog(BuildContext context, WidgetRef ref, Map<String, dynamic> item) {
+    final nameCtrl = TextEditingController(text: item['productName']);
+    final modelCtrl = TextEditingController(text: item['productModel']);
+    final mrpCtrl = TextEditingController(text: item['marketPrice'].toString());
+    final commCtrl = TextEditingController(text: item['commissionPercent'].toString());
+
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text("Correct Mistake"),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextFormField(controller: modelCtrl, decoration: const InputDecoration(labelText: "Model")),
+              const SizedBox(height: 10),
+              TextFormField(controller: nameCtrl, decoration: const InputDecoration(labelText: "Name")),
+              const SizedBox(height: 10),
+              TextFormField(controller: mrpCtrl, decoration: const InputDecoration(labelText: "MRP"), keyboardType: TextInputType.number),
+              const SizedBox(height: 10),
+              TextFormField(controller: commCtrl, decoration: const InputDecoration(labelText: "Comm %"), keyboardType: TextInputType.number),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text("Cancel")),
+          ElevatedButton(
+            onPressed: () async {
+              final newMrp = double.tryParse(mrpCtrl.text) ?? 0;
+              final newComm = double.tryParse(commCtrl.text) ?? 0;
+              final newBuy = newMrp - (newMrp * (newComm / 100));
+
+              try {
+                // CALL REPOSITORY TO UPDATE LOG + PRODUCT
+                await ref.read(inventoryRepositoryProvider).correctStockEntry(
+                  logId: item['logId'],
+                  productId: item['productId'],
+                  newName: nameCtrl.text.trim(),
+                  newModel: modelCtrl.text.trim(),
+                  newMrp: newMrp,
+                  newComm: newComm,
+                  newBuyingPrice: newBuy,
+                );
+                if (context.mounted) {
+                  Navigator.pop(ctx); // Close Dialog
+                  Navigator.pop(context); // Close Sheet (to refresh data)
+                  ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Entry Corrected! Re-open to see changes.")));
+                }
+              } catch (e) {
+                if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Error: $e")));
+              }
+            },
+            child: const Text("Save Correction"),
+          ),
+        ],
+      ),
+    );
   }
 }

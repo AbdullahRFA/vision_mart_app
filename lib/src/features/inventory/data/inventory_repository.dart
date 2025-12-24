@@ -3,10 +3,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../authentication/data/auth_repository.dart';
 import '../domain/product_model.dart';
 
-// 1. Repository Provider
 final inventoryRepositoryProvider = Provider((ref) => InventoryRepository(FirebaseFirestore.instance, ref));
 
-// 2. Stream Providers (MUST BE HERE)
 final inventoryStreamProvider = StreamProvider<List<Product>>((ref) {
   final repository = ref.watch(inventoryRepositoryProvider);
   return repository.watchInventory();
@@ -38,7 +36,7 @@ class InventoryRepository {
     });
 
     for (var product in newProducts) {
-      // 1. Fetch products with same MODEL
+      // Fetch products with same MODEL
       final querySnapshot = await _firestore
           .collection('products')
           .where('model', isEqualTo: product.model)
@@ -47,7 +45,7 @@ class InventoryRepository {
       DocumentReference? targetProductRef;
       int oldStock = 0;
 
-      // 2. Find EXACT match (Category + MRP + Commission)
+      // STRICT MATCHING: Category + MRP + Commission
       if (querySnapshot.docs.isNotEmpty) {
         for (var doc in querySnapshot.docs) {
           final data = doc.data();
@@ -67,7 +65,6 @@ class InventoryRepository {
         }
       }
 
-      // 3. Update or Create
       if (targetProductRef != null) {
         batch.update(targetProductRef, {
           'currentStock': FieldValue.increment(product.currentStock),
@@ -83,7 +80,6 @@ class InventoryRepository {
         batch.set(targetProductRef, productData);
       }
 
-      // 4. Log
       final logRef = _firestore.collection('inventory_logs').doc();
       batch.set(logRef, {
         'batchId': masterLogRef.id,
@@ -119,8 +115,8 @@ class InventoryRepository {
     }).toList());
   }
 
-  // --- 3. GET BATCH ITEMS ---
-  Future<List<Product>> getHistoryBatchItems(String batchId) async {
+  // --- 3. GET BATCH ITEMS (With Log ID for Editing) ---
+  Future<List<Map<String, dynamic>>> getHistoryBatchLogs(String batchId) async {
     final snapshot = await _firestore
         .collection('inventory_logs')
         .where('batchId', isEqualTo: batchId)
@@ -128,6 +124,15 @@ class InventoryRepository {
 
     return snapshot.docs.map((doc) {
       final data = doc.data();
+      data['logId'] = doc.id; // Crucial for updating specific log
+      return data;
+    }).toList();
+  }
+
+  // Legacy method for PDF (wraps the above)
+  Future<List<Product>> getHistoryBatchItems(String batchId) async {
+    final logs = await getHistoryBatchLogs(batchId);
+    return logs.map((data) {
       return Product(
         id: data['productId'] ?? '',
         name: data['productName'] ?? '',
@@ -144,7 +149,45 @@ class InventoryRepository {
     }).toList();
   }
 
-  // --- 4. CRUD ---
+  // --- 4. 👇 NEW: CORRECT MISTAKE (ACID Transaction) ---
+  Future<void> correctStockEntry({
+    required String logId,
+    required String productId,
+    required String newName,
+    required String newModel,
+    required double newMrp,
+    required double newComm,
+    required double newBuyingPrice,
+  }) async {
+    await _firestore.runTransaction((transaction) async {
+      final logRef = _firestore.collection('inventory_logs').doc(logId);
+      final productRef = _firestore.collection('products').doc(productId);
+
+      // 1. Update the Historical Log (so the memo is correct)
+      transaction.update(logRef, {
+        'productName': newName,
+        'productModel': newModel,
+        'marketPrice': newMrp,
+        'commissionPercent': newComm,
+        'buyingPrice': newBuyingPrice,
+      });
+
+      // 2. Update the Master Product (so current stock is correct)
+      // Note: We check existence just in case it was deleted
+      final productSnap = await transaction.get(productRef);
+      if (productSnap.exists) {
+        transaction.update(productRef, {
+          'name': newName,
+          'model': newModel,
+          'marketPrice': newMrp,
+          'commissionPercent': newComm,
+          'buyingPrice': newBuyingPrice,
+        });
+      }
+    });
+  }
+
+  // ... (Existing CRUD methods) ...
   Future<void> updateProduct(Product product) async {
     final batch = _firestore.batch();
     final docRef = _firestore.collection('products').doc(product.id);
