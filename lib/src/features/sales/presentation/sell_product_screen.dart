@@ -79,14 +79,24 @@ class _SellProductScreenState extends ConsumerState<SellProductScreen> {
   }
 
   void _onQtyChanged() {
-    // Re-run calculations based on current active field logic, or reset if simple
     if (_selectedProduct == null) return;
-    // Default: Keep discount %, recalc amounts
-    _onPercentChanged();
+    // When qty changes, we generally want to keep the same discount % and recalc the rest
+    // Temporarily treat as if percent changed to refresh calculations
+    double mrp = _selectedProduct!.marketPrice;
+    int qty = int.tryParse(_qtyController.text) ?? 1;
+    double totalMrp = mrp * qty;
+
+    double percent = double.tryParse(_discountPercentController.text) ?? 0;
+    double discountAmt = totalMrp * (percent / 100);
+    double finalPrice = totalMrp - discountAmt;
+
+    _discountAmountController.text = discountAmt.toStringAsFixed(0);
+    _finalPriceController.text = finalPrice.toStringAsFixed(0);
   }
 
   void _onPercentChanged() {
-    if (!_discPercentFocus.hasFocus && _discPercentFocus.hasPrimaryFocus) return;
+    // 🛑 FIX: Only run if THIS field has focus. Prevents overwriting user input in other fields.
+    if (!_discPercentFocus.hasFocus) return;
     if (_selectedProduct == null) return;
 
     double mrp = _selectedProduct!.marketPrice;
@@ -98,16 +108,12 @@ class _SellProductScreenState extends ConsumerState<SellProductScreen> {
     double discountAmt = totalMrp * (percent / 100);
     double finalPrice = totalMrp - discountAmt;
 
-    // Update other fields without triggering their listeners loop
-    if (_discountAmountController.text != discountAmt.toStringAsFixed(0)) {
-      _discountAmountController.text = discountAmt.toStringAsFixed(0);
-    }
-    if (_finalPriceController.text != finalPrice.toStringAsFixed(0)) {
-      _finalPriceController.text = finalPrice.toStringAsFixed(0);
-    }
+    _discountAmountController.text = discountAmt.toStringAsFixed(0);
+    _finalPriceController.text = finalPrice.toStringAsFixed(0);
   }
 
   void _onAmountChanged() {
+    // 🛑 FIX: Only run if THIS field has focus.
     if (!_discAmountFocus.hasFocus) return;
     if (_selectedProduct == null) return;
 
@@ -121,11 +127,13 @@ class _SellProductScreenState extends ConsumerState<SellProductScreen> {
     double percent = (discountAmt / totalMrp) * 100;
     double finalPrice = totalMrp - discountAmt;
 
+    // Update Percentage and Final Price
     _discountPercentController.text = percent.toStringAsFixed(2);
     _finalPriceController.text = finalPrice.toStringAsFixed(0);
   }
 
   void _onFinalPriceChanged() {
+    // 🛑 FIX: Only run if THIS field has focus.
     if (!_finalPriceFocus.hasFocus) return;
     if (_selectedProduct == null) return;
 
@@ -142,7 +150,36 @@ class _SellProductScreenState extends ConsumerState<SellProductScreen> {
     _discountPercentController.text = percent.toStringAsFixed(2);
   }
 
-  // --- END PRICING LOGIC ---
+  // --- CART EDIT LOGIC ---
+  void _editCartItem(int index) {
+    final item = _cartItems[index];
+    setState(() {
+      // 1. Remove from list
+      _cartItems.removeAt(index);
+
+      // 2. Load into inputs
+      _selectedProduct = item.product;
+      _qtyController.text = item.quantity.toString();
+
+      // 3. Set Pricing (Calculated fields need to sync)
+      _finalPriceController.text = item.finalPrice.toStringAsFixed(0);
+      _discountPercentController.text = item.discountPercent.toStringAsFixed(2);
+
+      // Calculate missing Discount Amount for the form
+      double totalMrp = item.product.marketPrice * item.quantity;
+      double distAmt = totalMrp - item.finalPrice;
+      _discountAmountController.text = distAmt.toStringAsFixed(0);
+
+      // 4. Reset Type to Percent (default) or keep logic simple
+      _discountType = SalesDiscountType.percentage;
+    });
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text("Editing ${item.product.model}..."), duration: const Duration(milliseconds: 600)),
+    );
+  }
+
+  // --- END LOGIC ---
 
   Future<void> _pickDate() async {
     final picked = await showDatePicker(
@@ -177,15 +214,18 @@ class _SellProductScreenState extends ConsumerState<SellProductScreen> {
     final item = CartItem(
       product: _selectedProduct!,
       quantity: qty,
-      discountPercent: double.parse(_discountPercentController.text),
-      finalPrice: double.parse(_finalPriceController.text),
+      discountPercent: double.tryParse(_discountPercentController.text) ?? 0,
+      finalPrice: double.tryParse(_finalPriceController.text) ?? 0,
     );
 
     setState(() {
       _cartItems.add(item);
       // Reset for next item
       _qtyController.text = '1';
-      _resetPricingFields();
+      _selectedProduct = null; // Clear selection after adding
+      _finalPriceController.text = '0';
+      _discountPercentController.text = '0';
+      _discountAmountController.text = '0';
     });
     ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Added to Cart"), duration: Duration(milliseconds: 600)));
   }
@@ -441,7 +481,7 @@ class _SellProductScreenState extends ConsumerState<SellProductScreen> {
                           onPressed: (index) {
                             setState(() {
                               _discountType = index == 0 ? SalesDiscountType.percentage : SalesDiscountType.flat;
-                              // Force re-calc just in case field focus logic misses
+                              // Force re-calc
                               _onPercentChanged();
                             });
                           },
@@ -527,13 +567,23 @@ class _SellProductScreenState extends ConsumerState<SellProductScreen> {
                           "${item.quantity} x ৳${item.product.marketPrice} (-${item.discountPercent.toStringAsFixed(1)}%)",
                           style: TextStyle(color: isDark ? Colors.white70 : Colors.grey[700])
                       ),
+                      // 🆕 UPDATED TRAILING: Edit & Delete buttons
                       trailing: Row(
                         mainAxisSize: MainAxisSize.min,
                         children: [
                           Text("৳${item.finalPrice.toStringAsFixed(0)}", style: TextStyle(fontWeight: FontWeight.bold, color: isDark ? Colors.greenAccent : Colors.black)),
+                          const SizedBox(width: 8),
+                          // Edit Button
+                          IconButton(
+                            icon: const Icon(Icons.edit, color: Colors.blue, size: 20),
+                            onPressed: () => _editCartItem(index),
+                            tooltip: "Edit Item",
+                          ),
+                          // Delete Button
                           IconButton(
                             icon: const Icon(Icons.delete_outline, color: Colors.redAccent, size: 20),
                             onPressed: () => setState(() => _cartItems.removeAt(index)),
+                            tooltip: "Remove Item",
                           ),
                         ],
                       ),
