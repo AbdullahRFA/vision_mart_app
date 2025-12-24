@@ -3,8 +3,10 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../authentication/data/auth_repository.dart';
 import '../domain/product_model.dart';
 
+// 1. Repository Provider
 final inventoryRepositoryProvider = Provider((ref) => InventoryRepository(FirebaseFirestore.instance, ref));
 
+// 2. Stream Providers
 final inventoryStreamProvider = StreamProvider<List<Product>>((ref) {
   final repository = ref.watch(inventoryRepositoryProvider);
   return repository.watchInventory();
@@ -36,7 +38,6 @@ class InventoryRepository {
     });
 
     for (var product in newProducts) {
-      // Fetch products with same MODEL
       final querySnapshot = await _firestore
           .collection('products')
           .where('model', isEqualTo: product.model)
@@ -45,7 +46,6 @@ class InventoryRepository {
       DocumentReference? targetProductRef;
       int oldStock = 0;
 
-      // STRICT MATCHING: Category + MRP + Commission
       if (querySnapshot.docs.isNotEmpty) {
         for (var doc in querySnapshot.docs) {
           final data = doc.data();
@@ -115,7 +115,7 @@ class InventoryRepository {
     }).toList());
   }
 
-  // --- 3. GET BATCH ITEMS (With Log ID for Editing) ---
+  // --- 3. GET BATCH ITEMS (With Log ID) ---
   Future<List<Map<String, dynamic>>> getHistoryBatchLogs(String batchId) async {
     final snapshot = await _firestore
         .collection('inventory_logs')
@@ -124,12 +124,11 @@ class InventoryRepository {
 
     return snapshot.docs.map((doc) {
       final data = doc.data();
-      data['logId'] = doc.id; // Crucial for updating specific log
+      data['logId'] = doc.id;
       return data;
     }).toList();
   }
 
-  // Legacy method for PDF (wraps the above)
   Future<List<Product>> getHistoryBatchItems(String batchId) async {
     final logs = await getHistoryBatchLogs(batchId);
     return logs.map((data) {
@@ -149,7 +148,7 @@ class InventoryRepository {
     }).toList();
   }
 
-  // --- 4. 👇 NEW: CORRECT MISTAKE (ACID Transaction) ---
+  // --- 4. CORRECT MISTAKE (ACID Transaction) ---
   Future<void> correctStockEntry({
     required String logId,
     required String productId,
@@ -163,7 +162,11 @@ class InventoryRepository {
       final logRef = _firestore.collection('inventory_logs').doc(logId);
       final productRef = _firestore.collection('products').doc(productId);
 
-      // 1. Update the Historical Log (so the memo is correct)
+      // 👇 FIX: PERFORM ALL READS FIRST
+      final productSnap = await transaction.get(productRef);
+
+      // 👇 THEN PERFORM WRITES
+      // 1. Update the Historical Log
       transaction.update(logRef, {
         'productName': newName,
         'productModel': newModel,
@@ -172,9 +175,7 @@ class InventoryRepository {
         'buyingPrice': newBuyingPrice,
       });
 
-      // 2. Update the Master Product (so current stock is correct)
-      // Note: We check existence just in case it was deleted
-      final productSnap = await transaction.get(productRef);
+      // 2. Update the Master Product (if it exists)
       if (productSnap.exists) {
         transaction.update(productRef, {
           'name': newName,
@@ -187,7 +188,7 @@ class InventoryRepository {
     });
   }
 
-  // ... (Existing CRUD methods) ...
+  // ... (Update/Delete/WatchInventory) ...
   Future<void> updateProduct(Product product) async {
     final batch = _firestore.batch();
     final docRef = _firestore.collection('products').doc(product.id);

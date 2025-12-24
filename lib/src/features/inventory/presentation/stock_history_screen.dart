@@ -103,13 +103,11 @@ class _StockHistoryScreenState extends ConsumerState<StockHistoryScreen> {
                         trailing: Row(
                           mainAxisSize: MainAxisSize.min,
                           children: [
-                            // 1. VIEW/EDIT BUTTON
                             IconButton(
                               icon: const Icon(Icons.edit_note, color: Colors.blue),
                               tooltip: "View/Edit Items",
                               onPressed: () => _showBatchItems(context, batch['id']),
                             ),
-                            // 2. PRINT BUTTON
                             IconButton(
                               icon: const Icon(Icons.print, color: Colors.green),
                               tooltip: "Print Memo",
@@ -131,7 +129,6 @@ class _StockHistoryScreenState extends ConsumerState<StockHistoryScreen> {
     );
   }
 
-  // --- SHOW BATCH ITEMS & EDIT ---
   void _showBatchItems(BuildContext context, String batchId) {
     showModalBottomSheet(
       context: context,
@@ -140,7 +137,6 @@ class _StockHistoryScreenState extends ConsumerState<StockHistoryScreen> {
     );
   }
 
-  // ... (existing _groupBatchesByDate & _printBatch methods) ...
   Map<String, List<Map<String, dynamic>>> _groupBatchesByDate(List<Map<String, dynamic>> batches) {
     final grouped = <String, List<Map<String, dynamic>>>{};
     final now = DateTime.now();
@@ -174,6 +170,7 @@ class _StockHistoryScreenState extends ConsumerState<StockHistoryScreen> {
       }
       await ReceivingPdfGenerator.generateBatchReceivingMemo(products: items, receivedBy: user, receivingDate: date);
     } catch (e) {
+      debugPrint("Error printing batch: $e"); // Added console log here as well
       if (mounted) {
         Navigator.pop(context);
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Error: $e")));
@@ -182,7 +179,6 @@ class _StockHistoryScreenState extends ConsumerState<StockHistoryScreen> {
   }
 }
 
-// --- NEW WIDGET: Batch Items Sheet with Edit ---
 class _BatchItemsSheet extends ConsumerWidget {
   final String batchId;
   const _BatchItemsSheet({required this.batchId});
@@ -259,7 +255,6 @@ class _BatchItemsSheet extends ConsumerWidget {
               final newBuy = newMrp - (newMrp * (newComm / 100));
 
               try {
-                // CALL REPOSITORY TO UPDATE LOG + PRODUCT
                 await ref.read(inventoryRepositoryProvider).correctStockEntry(
                   logId: item['logId'],
                   productId: item['productId'],
@@ -270,11 +265,13 @@ class _BatchItemsSheet extends ConsumerWidget {
                   newBuyingPrice: newBuy,
                 );
                 if (context.mounted) {
-                  Navigator.pop(ctx); // Close Dialog
-                  Navigator.pop(context); // Close Sheet (to refresh data)
+                  Navigator.pop(ctx);
+                  Navigator.pop(context);
                   ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Entry Corrected! Re-open to see changes.")));
                 }
               } catch (e) {
+                // 👇 ADDED: Print Error to Console
+                debugPrint("Error correcting stock entry: $e");
                 if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Error: $e")));
               }
             },
