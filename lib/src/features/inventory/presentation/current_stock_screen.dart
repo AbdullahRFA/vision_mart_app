@@ -15,6 +15,53 @@ class _CurrentStockScreenState extends ConsumerState<CurrentStockScreen> {
   final _searchController = TextEditingController();
   String _searchQuery = "";
 
+  // --- CRUD ACTIONS ---
+
+  void _showEditDialog(Product product) {
+    showDialog(
+      context: context,
+      builder: (context) => _EditProductDialog(product: product),
+    );
+  }
+
+  void _confirmDelete(Product product) {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text("Delete Product?"),
+        content: Text("Are you sure you want to delete ${product.model}?"),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text("Cancel")),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.red, foregroundColor: Colors.white),
+            onPressed: () async {
+              Navigator.pop(ctx);
+              try {
+                // ACID Compliant Delete (Handled in Repository)
+                await ref
+                    .read(inventoryRepositoryProvider)
+                    .deleteProduct(product.id, product.model);
+                if (mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(content: Text("Product Deleted")));
+                }
+              } catch (e) {
+                if (mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(content: Text("Error: $e"), backgroundColor: Colors.red));
+                }
+              }
+            },
+            child: const Text("Delete"),
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final inventoryAsync = ref.watch(inventoryStreamProvider);
@@ -22,6 +69,7 @@ class _CurrentStockScreenState extends ConsumerState<CurrentStockScreen> {
 
     return Scaffold(
       appBar: AppBar(title: const Text("Current Stock")),
+      // 1. CREATE (Receive Stock)
       floatingActionButton: FloatingActionButton.extended(
         onPressed: () {
           Navigator.push(
@@ -56,11 +104,14 @@ class _CurrentStockScreenState extends ConsumerState<CurrentStockScreen> {
             ),
           ),
 
+          // 2. READ (List View)
           Expanded(
             child: inventoryAsync.when(
               data: (products) {
-                // Filter: currentStock > 0 AND matches search
                 final availableProducts = products.where((p) {
+                  // Filter logic: Show items with stock > 0 OR if searching (to find items to edit/delete even if 0)
+                  // But requirement said "once a model stock is zero then it automatically remove"
+                  // So we strictly filter stock > 0
                   final hasStock = p.currentStock > 0;
                   final matchesSearch =
                       p.model.toLowerCase().contains(_searchQuery) ||
@@ -87,6 +138,8 @@ class _CurrentStockScreenState extends ConsumerState<CurrentStockScreen> {
                     return _CategoryStockCard(
                       categoryName: entry.key,
                       products: entry.value,
+                      onEdit: _showEditDialog,
+                      onDelete: _confirmDelete,
                     );
                   }).toList(),
                 );
@@ -104,9 +157,15 @@ class _CurrentStockScreenState extends ConsumerState<CurrentStockScreen> {
 class _CategoryStockCard extends StatelessWidget {
   final String categoryName;
   final List<Product> products;
+  final Function(Product) onEdit;
+  final Function(Product) onDelete;
 
-  const _CategoryStockCard(
-      {required this.categoryName, required this.products});
+  const _CategoryStockCard({
+    required this.categoryName,
+    required this.products,
+    required this.onEdit,
+    required this.onDelete,
+  });
 
   Color _getStockColor(int stock) {
     if (stock < 5) return Colors.red;
@@ -125,7 +184,7 @@ class _CategoryStockCard extends StatelessWidget {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final primaryColor = Theme.of(context).primaryColor;
 
-    // 1. Calculate Summaries
+    // Summaries
     final int totalModels = products.length;
     final int totalQuantity = products.fold(0, (sum, p) => sum + p.currentStock);
     final double totalValue = products.fold(0, (sum, p) => sum + (p.buyingPrice * p.currentStock));
@@ -138,7 +197,6 @@ class _CategoryStockCard extends StatelessWidget {
       child: Theme(
         data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
         child: ExpansionTile(
-          // 2. Custom Header Display
           title: Text(
             categoryName,
             style: TextStyle(
@@ -157,8 +215,7 @@ class _CategoryStockCard extends StatelessWidget {
                   "Total Stock Value:",
                   "৳${totalValue.toStringAsFixed(0)}",
                   isDark,
-                  valueColor: Colors.green
-              ),
+                  valueColor: Colors.green),
             ],
           ),
           leading: CircleAvatar(
@@ -168,8 +225,6 @@ class _CategoryStockCard extends StatelessWidget {
           backgroundColor: isDark ? Colors.black12 : primaryColor.withOpacity(0.02),
           collapsedBackgroundColor: Colors.transparent,
           childrenPadding: const EdgeInsets.only(bottom: 8),
-
-          // 3. Expanded Product List
           children: products.map((p) {
             final stockColor = _getStockColor(p.currentStock);
             final statusLabel = _getStockStatus(p.currentStock);
@@ -200,8 +255,8 @@ class _CategoryStockCard extends StatelessWidget {
                   ),
                   trailing: Row(
                     mainAxisSize: MainAxisSize.min,
-                    crossAxisAlignment: CrossAxisAlignment.center,
                     children: [
+                      // MRP Info
                       Column(
                         mainAxisAlignment: MainAxisAlignment.center,
                         crossAxisAlignment: CrossAxisAlignment.end,
@@ -222,7 +277,9 @@ class _CategoryStockCard extends StatelessWidget {
                           ),
                         ],
                       ),
-                      const SizedBox(width: 12),
+                      const SizedBox(width: 8),
+
+                      // Stock Alarm
                       Container(
                         padding: const EdgeInsets.symmetric(
                             horizontal: 8, vertical: 4),
@@ -253,6 +310,38 @@ class _CategoryStockCard extends StatelessWidget {
                             ),
                           ],
                         ),
+                      ),
+
+                      // 3. ACTIONS (Update/Delete)
+                      PopupMenuButton<String>(
+                        icon: Icon(Icons.more_vert, color: isDark ? Colors.white54 : Colors.grey),
+                        color: isDark ? const Color(0xFF1E293B) : Colors.white,
+                        onSelected: (value) {
+                          if (value == 'edit') onEdit(p);
+                          if (value == 'delete') onDelete(p);
+                        },
+                        itemBuilder: (BuildContext context) => <PopupMenuEntry<String>>[
+                          PopupMenuItem<String>(
+                            value: 'edit',
+                            child: Row(
+                              children: [
+                                const Icon(Icons.edit, color: Colors.blue, size: 20),
+                                const SizedBox(width: 10),
+                                Text("Edit Details", style: TextStyle(color: isDark ? Colors.white : Colors.black)),
+                              ],
+                            ),
+                          ),
+                          PopupMenuItem<String>(
+                            value: 'delete',
+                            child: Row(
+                              children: [
+                                const Icon(Icons.delete, color: Colors.red, size: 20),
+                                const SizedBox(width: 10),
+                                Text("Delete Item", style: TextStyle(color: isDark ? Colors.white : Colors.black)),
+                              ],
+                            ),
+                          ),
+                        ],
                       ),
                     ],
                   ),
@@ -288,6 +377,147 @@ class _CategoryStockCard extends StatelessWidget {
           ),
         ],
       ),
+    );
+  }
+}
+
+// 4. EDIT DIALOG (Update)
+class _EditProductDialog extends ConsumerStatefulWidget {
+  final Product product;
+  const _EditProductDialog({required this.product});
+
+  @override
+  ConsumerState<_EditProductDialog> createState() => _EditProductDialogState();
+}
+
+class _EditProductDialogState extends ConsumerState<_EditProductDialog> {
+  final _formKey = GlobalKey<FormState>();
+  late TextEditingController _nameCtrl;
+  late TextEditingController _modelCtrl;
+  late TextEditingController _mrpCtrl;
+  late TextEditingController _commCtrl;
+  late TextEditingController _stockCtrl;
+
+  @override
+  void initState() {
+    super.initState();
+    _nameCtrl = TextEditingController(text: widget.product.name);
+    _modelCtrl = TextEditingController(text: widget.product.model);
+    _mrpCtrl = TextEditingController(text: widget.product.marketPrice.toStringAsFixed(0));
+    _commCtrl = TextEditingController(text: widget.product.commissionPercent.toString());
+    _stockCtrl = TextEditingController(text: widget.product.currentStock.toString());
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final inputStyle = TextStyle(color: isDark ? Colors.white : Colors.black87);
+
+    return AlertDialog(
+      backgroundColor: isDark ? const Color(0xFF1E293B) : Colors.white,
+      title: Text("Edit ${widget.product.model}", style: TextStyle(color: isDark ? Colors.white : Colors.black87)),
+      content: SingleChildScrollView(
+        child: Form(
+          key: _formKey,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextFormField(
+                controller: _modelCtrl,
+                style: inputStyle,
+                decoration: _dialogDecor("Model"),
+                validator: (v) => v!.isEmpty ? "Required" : null,
+              ),
+              const SizedBox(height: 10),
+              TextFormField(
+                controller: _nameCtrl,
+                style: inputStyle,
+                decoration: _dialogDecor("Product Name"),
+                validator: (v) => v!.isEmpty ? "Required" : null,
+              ),
+              const SizedBox(height: 10),
+              TextFormField(
+                controller: _stockCtrl,
+                style: inputStyle,
+                keyboardType: TextInputType.number,
+                decoration: _dialogDecor("Stock Quantity"),
+              ),
+              const SizedBox(height: 10),
+              Row(
+                children: [
+                  Expanded(
+                    child: TextFormField(
+                      controller: _mrpCtrl,
+                      style: inputStyle,
+                      keyboardType: TextInputType.number,
+                      decoration: _dialogDecor("MRP"),
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: TextFormField(
+                      controller: _commCtrl,
+                      style: inputStyle,
+                      keyboardType: TextInputType.number,
+                      decoration: _dialogDecor("Comm %"),
+                    ),
+                  ),
+                ],
+              )
+            ],
+          ),
+        ),
+      ),
+      actions: [
+        TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text("Cancel")),
+        ElevatedButton(
+          onPressed: () async {
+            if (!_formKey.currentState!.validate()) return;
+
+            final mrp = double.tryParse(_mrpCtrl.text) ?? 0;
+            final comm = double.tryParse(_commCtrl.text) ?? 0;
+            final stock = int.tryParse(_stockCtrl.text) ?? 0;
+            final buyingPrice = mrp - (mrp * (comm / 100));
+
+            // Create updated object
+            final updatedProduct = Product(
+              id: widget.product.id,
+              name: _nameCtrl.text.trim(),
+              model: _modelCtrl.text.trim(),
+              category: widget.product.category, // Keep category
+              capacity: widget.product.capacity,
+              color: widget.product.color,
+              marketPrice: mrp,
+              commissionPercent: comm,
+              buyingPrice: buyingPrice,
+              currentStock: stock,
+              lastUpdated: DateTime.now(),
+            );
+
+            try {
+              // ACID Compliant Update
+              await ref.read(inventoryRepositoryProvider).updateProduct(updatedProduct);
+              if (mounted) {
+                Navigator.pop(context);
+                ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Product Updated")));
+              }
+            } catch (e) {
+              if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Error: $e")));
+            }
+          },
+          child: const Text("Save"),
+        )
+      ],
+    );
+  }
+
+  InputDecoration _dialogDecor(String label) {
+    return InputDecoration(
+      labelText: label,
+      border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+      contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
     );
   }
 }
