@@ -19,6 +19,9 @@ import 'src/features/inventory/domain/product_model.dart';
 // 👇 Add Sales Import
 import 'src/features/sales/presentation/sell_product_screen.dart';
 
+import 'src/features/inventory/presentation/current_stock_screen.dart';
+import 'src/features/inventory/presentation/stock_history_screen.dart';
+
 class ThemeModeNotifier extends Notifier<ThemeMode> {
   @override
   ThemeMode build() {
@@ -419,17 +422,19 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                   color: Colors.green,
                   onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const SellProductScreen())),
                 ),
+                // 1. MODIFIED: "Current Stock" (Was Receive Stock)
                 _DashboardCard(
-                  title: "Receive Stock",
-                  icon: Icons.add_box_rounded,
+                  title: "Current Stock",
+                  icon: Icons.store_mall_directory_rounded, // Changed Icon
                   color: Colors.blue,
-                  onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const ReceiveProductScreen())),
+                  onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const CurrentStockScreen())),
                 ),
+                // 2. MODIFIED: "Stock History" (Was Inventory)
                 _DashboardCard(
-                  title: "Inventory",
-                  icon: Icons.inventory_2_rounded,
+                  title: "Stock History",
+                  icon: Icons.history_edu_rounded, // Changed Icon
                   color: Colors.purple,
-                  onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const InventoryScreen())),
+                  onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const StockHistoryScreen())),
                 ),
                 _DashboardCard(
                   title: "Sales Report",
