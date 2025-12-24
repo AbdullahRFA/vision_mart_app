@@ -367,67 +367,62 @@ class _ProductCard extends StatelessWidget {
       ),
       child: Material(
         color: Colors.transparent,
-        child: InkWell(
-          borderRadius: BorderRadius.circular(16),
-          onTap: () {
-            Navigator.push(context, MaterialPageRoute(builder: (_) => SellProductScreen(product: product)));
-          },
-          child: Padding(
-            padding: const EdgeInsets.all(16),
-            child: Row(
-              children: [
-                Container(
-                  width: 50,
-                  height: 50,
-                  decoration: BoxDecoration(
-                    color: Theme.of(context).primaryColor.withOpacity(0.1),
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: Icon(getIconForCategory(product.category), color: Theme.of(context).primaryColor),
+        // 3. CHANGED: Removed InkWell/onTap to remove navigation from this card
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Row(
+            children: [
+              Container(
+                width: 50,
+                height: 50,
+                decoration: BoxDecoration(
+                  color: Theme.of(context).primaryColor.withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(12),
                 ),
-                const SizedBox(width: 16),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(product.model, style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: isDark ? Colors.white : Colors.black87)),
-                      const SizedBox(height: 4),
-                      Text("${product.name}", style: TextStyle(fontSize: 12, color: isDark ? Colors.yellowAccent : Colors.grey[600]), maxLines: 1, overflow: TextOverflow.ellipsis),
-
-                      if (product.color.isNotEmpty)
-                        Padding(
-                          padding: const EdgeInsets.only(top: 2),
-                          child: Text("Color: ${product.color}", style: TextStyle(fontSize: 11, color: isDark ? Colors.white60 : Colors.grey[500])),
-                        ),
-                      const SizedBox(height: 6),
-
-                      Text("৳${product.marketPrice.toStringAsFixed(0)}", style: TextStyle(color: isDark ? Colors.greenAccent : Theme.of(context).primaryColor, fontWeight: FontWeight.bold, fontSize: 14)),
-                    ],
-                  ),
-                ),
-                Column(
-                  crossAxisAlignment: CrossAxisAlignment.end,
+                child: Icon(getIconForCategory(product.category), color: Theme.of(context).primaryColor),
+              ),
+              const SizedBox(width: 16),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                      decoration: BoxDecoration(
-                        color: stockColor.withOpacity(0.1),
-                        borderRadius: BorderRadius.circular(8),
+                    Text(product.model, style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: isDark ? Colors.white : Colors.black87)),
+                    const SizedBox(height: 4),
+                    Text("${product.name}", style: TextStyle(fontSize: 12, color: isDark ? Colors.yellowAccent : Colors.grey[600]), maxLines: 1, overflow: TextOverflow.ellipsis),
+
+                    if (product.color.isNotEmpty)
+                      Padding(
+                        padding: const EdgeInsets.only(top: 2),
+                        child: Text("Color: ${product.color}", style: TextStyle(fontSize: 11, color: isDark ? Colors.white60 : Colors.grey[500])),
                       ),
-                      child: Text("${product.currentStock} Units", style: TextStyle(color: stockColor, fontWeight: FontWeight.bold, fontSize: 10)),
-                    ),
-                    const SizedBox(height: 8),
-                    Row(
-                      children: [
-                        InkWell(onTap: onEdit, child: Icon(Icons.edit, size: 20, color: isDark ? Colors.blue[200] : Colors.grey[600])),
-                        const SizedBox(width: 12),
-                        InkWell(onTap: onDelete, child: Icon(Icons.delete, size: 20, color: Colors.redAccent)),
-                      ],
-                    )
+                    const SizedBox(height: 6),
+
+                    Text("৳${product.marketPrice.toStringAsFixed(0)}", style: TextStyle(color: isDark ? Colors.greenAccent : Theme.of(context).primaryColor, fontWeight: FontWeight.bold, fontSize: 14)),
                   ],
                 ),
-              ],
-            ),
+              ),
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.end,
+                children: [
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                    decoration: BoxDecoration(
+                      color: stockColor.withOpacity(0.1),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Text("${product.currentStock} Units", style: TextStyle(color: stockColor, fontWeight: FontWeight.bold, fontSize: 10)),
+                  ),
+                  const SizedBox(height: 8),
+                  Row(
+                    children: [
+                      InkWell(onTap: onEdit, child: Icon(Icons.edit, size: 20, color: isDark ? Colors.blue[200] : Colors.grey[600])),
+                      const SizedBox(width: 12),
+                      InkWell(onTap: onDelete, child: Icon(Icons.delete, size: 20, color: Colors.redAccent)),
+                    ],
+                  )
+                ],
+              ),
+            ],
           ),
         ),
       ),
@@ -446,13 +441,13 @@ class _EditProductDialog extends ConsumerStatefulWidget {
 class _EditProductDialogState extends ConsumerState<_EditProductDialog> {
   final _formKey = GlobalKey<FormState>();
   late TextEditingController _nameCtrl;
-  late TextEditingController _modelCtrl; // 👈 New
+  late TextEditingController _modelCtrl;
   late TextEditingController _mrpCtrl;
   late TextEditingController _commCtrl;
   late TextEditingController _capacityCtrl;
   late TextEditingController _colorCtrl;
   late TextEditingController _stockCtrl;
-  String _selectedCategory = ""; // 👈 New
+  String _selectedCategory = "";
 
   final List<String> _categoryOptions = [
     'Television', 'Refrigerator & Freezer', 'Air Conditioner',
@@ -465,7 +460,7 @@ class _EditProductDialogState extends ConsumerState<_EditProductDialog> {
   void initState() {
     super.initState();
     _nameCtrl = TextEditingController(text: widget.product.name);
-    _modelCtrl = TextEditingController(text: widget.product.model); // 👈 Init
+    _modelCtrl = TextEditingController(text: widget.product.model);
     _mrpCtrl = TextEditingController(text: widget.product.marketPrice.toString());
     _commCtrl = TextEditingController(text: widget.product.commissionPercent.toString());
     _capacityCtrl = TextEditingController(text: widget.product.capacity);
@@ -512,7 +507,6 @@ class _EditProductDialogState extends ConsumerState<_EditProductDialog> {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              // 👈 1. Model
               TextFormField(
                 controller: _modelCtrl,
                 style: inputStyle,
@@ -521,7 +515,6 @@ class _EditProductDialogState extends ConsumerState<_EditProductDialog> {
               ),
               const SizedBox(height: 10),
 
-              // 👈 2. Category
               DropdownButtonFormField<String>(
                 value: _selectedCategory,
                 items: _categoryOptions.map((c) => DropdownMenuItem(value: c, child: Text(c, style: inputStyle))).toList(),
@@ -584,8 +577,8 @@ class _EditProductDialogState extends ConsumerState<_EditProductDialog> {
 
             final updatedProduct = Product(
               id: widget.product.id,
-              model: _modelCtrl.text.trim(), // 👈 Updated
-              category: _selectedCategory, // 👈 Updated
+              model: _modelCtrl.text.trim(),
+              category: _selectedCategory,
               currentStock: newStock,
               name: _nameCtrl.text.trim(),
               capacity: _capacityCtrl.text.trim(),

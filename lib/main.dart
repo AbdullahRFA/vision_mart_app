@@ -14,9 +14,10 @@ import 'src/features/due_management/presentation/due_screen.dart';
 import 'src/features/expenses/presentation/expense_screen.dart';
 import 'src/features/expenses/data/expense_repository.dart';
 import 'src/features/expenses/domain/expense_model.dart';
-// 👇 Added Inventory Imports
 import 'src/features/inventory/data/inventory_repository.dart';
 import 'src/features/inventory/domain/product_model.dart';
+// 👇 Add Sales Import
+import 'src/features/sales/presentation/sell_product_screen.dart';
 
 class ThemeModeNotifier extends Notifier<ThemeMode> {
   @override
@@ -167,7 +168,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
     // 1. Watch Data Streams
     final salesStream = ref.watch(analyticsRepositoryProvider).getSalesForRange(range.start, range.end);
     final expensesAsync = ref.watch(expenseStreamProvider);
-    final inventoryAsync = ref.watch(inventoryStreamProvider); // 👈 Watch Inventory
+    final inventoryAsync = ref.watch(inventoryStreamProvider);
 
     return Scaffold(
       appBar: AppBar(
@@ -321,7 +322,6 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
 
                     return inventoryAsync.when(
                       data: (products) {
-                        // 🧮 CALCULATE STOCK VALUE
                         double totalStockValue = 0;
                         for (var p in products) {
                           totalStockValue += (p.buyingPrice * p.currentStock);
@@ -329,7 +329,6 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
 
                         return Column(
                           children: [
-                            // 1. New Card: Inventory Value (Full Width)
                             _StatCard(
                               title: "Current Stock Value",
                               subtitle: "(Unsold Inventory Assets)",
@@ -339,8 +338,6 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                               isFullWidth: true,
                             ),
                             const SizedBox(height: 12),
-
-                            // 2. Investment (Sold) & Revenue
                             Row(
                               children: [
                                 Expanded(
@@ -365,8 +362,6 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                               ],
                             ),
                             const SizedBox(height: 12),
-
-                            // 3. Expense & Net Profit
                             Row(
                               children: [
                                 Expanded(
@@ -417,6 +412,13 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
               mainAxisSpacing: 16,
               childAspectRatio: 1.1,
               children: [
+                // 1. ADDED: New Sale Card
+                _DashboardCard(
+                  title: "New Sale",
+                  icon: Icons.point_of_sale_rounded,
+                  color: Colors.green,
+                  onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const SellProductScreen())),
+                ),
                 _DashboardCard(
                   title: "Receive Stock",
                   icon: Icons.add_box_rounded,
@@ -456,6 +458,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
   }
 }
 
+// ... _StatCard and _DashboardCard remain the same ...
 // Statistic Card Widget
 class _StatCard extends StatelessWidget {
   final String title;

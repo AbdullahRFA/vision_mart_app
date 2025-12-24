@@ -7,8 +7,9 @@ import '../data/sales_repository.dart';
 import 'pdf_generator.dart';
 
 class SellProductScreen extends ConsumerStatefulWidget {
-  final Product product;
-  const SellProductScreen({super.key, required this.product});
+  // 1. CHANGED: Made product optional (nullable)
+  final Product? product;
+  const SellProductScreen({super.key, this.product});
 
   @override
   ConsumerState<SellProductScreen> createState() => _SellProductScreenState();
@@ -40,6 +41,7 @@ class _SellProductScreenState extends ConsumerState<SellProductScreen> {
   @override
   void initState() {
     super.initState();
+    // 2. CHANGED: Initialize with widget.product (which might be null now)
     _selectedProduct = widget.product;
     _calculateLineTotal();
     _qtyController.addListener(_calculateLineTotal);
@@ -74,7 +76,10 @@ class _SellProductScreenState extends ConsumerState<SellProductScreen> {
 
   void _addToCart() {
     if (!_formKey.currentState!.validate()) return;
-    if (_selectedProduct == null) return;
+    if (_selectedProduct == null) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Please select a product"), backgroundColor: Colors.red));
+      return;
+    }
 
     final qty = int.parse(_qtyController.text);
     if (qty > _selectedProduct!.currentStock) {
@@ -94,6 +99,8 @@ class _SellProductScreenState extends ConsumerState<SellProductScreen> {
     setState(() {
       _cartItems.add(item);
       _qtyController.text = '1';
+      // Optional: Clear selection after add if you prefer
+      // _selectedProduct = null;
       _calculateLineTotal();
     });
     ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Added to Cart"), duration: Duration(milliseconds: 600)));
@@ -140,7 +147,7 @@ class _SellProductScreenState extends ConsumerState<SellProductScreen> {
         customerPhone: _customerPhoneController.text.trim(),
         customerAddress: _customerAddressController.text.trim(),
         paymentStatus: _paymentStatus,
-        paidAmount: paidAmount, // Passing the calculated amount
+        paidAmount: paidAmount,
         saleDate: _selectedDate,
       );
 
@@ -163,6 +170,7 @@ class _SellProductScreenState extends ConsumerState<SellProductScreen> {
           _paidAmountController.clear();
           _selectedDate = DateTime.now();
           _paymentStatus = 'Cash';
+          _selectedProduct = null; // Reset selection
         });
 
         // Pass amounts to the dialog
@@ -175,7 +183,6 @@ class _SellProductScreenState extends ConsumerState<SellProductScreen> {
     }
   }
 
-  // 👇 FIXED: Added paidAmount and dueAmount parameters
   void _showSuccessDialog(List<CartItem> items, String name, String phone, String address, String status, DateTime date, double paidAmount, double dueAmount) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     showDialog(
@@ -200,15 +207,14 @@ class _SellProductScreenState extends ConsumerState<SellProductScreen> {
             style: FilledButton.styleFrom(backgroundColor: Colors.green, foregroundColor: Colors.white),
             onPressed: () {
               Navigator.pop(ctx);
-              // 👇 FIXED: Passing the required parameters
               PdfGenerator.generateBatchInvoice(
                 items: items,
                 customerName: name,
                 customerPhone: phone,
                 customerAddress: address,
                 paymentStatus: status,
-                paidAmount: paidAmount, // ✅ Passed
-                dueAmount: dueAmount,   // ✅ Passed
+                paidAmount: paidAmount,
+                dueAmount: dueAmount,
                 saleDate: date,
               );
               Navigator.pop(context);
@@ -313,6 +319,7 @@ class _SellProductScreenState extends ConsumerState<SellProductScreen> {
                       data: (products) {
                         return DropdownButtonFormField<Product>(
                           isExpanded: true,
+                          // Ensure selected product is valid in the list
                           value: _selectedProduct != null && products.any((p) => p.id == _selectedProduct!.id)
                               ? products.firstWhere((p) => p.id == _selectedProduct!.id)
                               : null,
