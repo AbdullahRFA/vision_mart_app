@@ -3,7 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import '../data/analytics_repository.dart';
-import 'sales_detail_screen.dart'; // 👈 1. IMPORT ADDED
+import 'sales_detail_screen.dart';
 
 class AnalyticsScreen extends ConsumerWidget {
   const AnalyticsScreen({super.key});
@@ -12,18 +12,27 @@ class AnalyticsScreen extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final salesAsync = ref.watch(salesReportProvider);
     final currentRange = ref.watch(dateRangeProvider);
-    final isDark = Theme.of(context).brightness == Brightness.dark;
+
+    // Enforcing Dark Background to support White/Yellow text
+    const backgroundColor = Color(0xFF0F172A);
+    const cardColor = Color(0xFF1E293B);
 
     return Scaffold(
-      appBar: AppBar(title: const Text("Business Report")),
+      backgroundColor: backgroundColor,
+      appBar: AppBar(
+        title: const Text("Business Report", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+        backgroundColor: backgroundColor,
+        iconTheme: const IconThemeData(color: Colors.white),
+        elevation: 0,
+      ),
       body: Column(
         children: [
           // 1. HEADER & FILTERS
           Container(
             padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
-            decoration: BoxDecoration(
-              color: isDark ? const Color(0xFF0F172A) : Colors.white,
-              border: Border(bottom: BorderSide(color: isDark ? Colors.white10 : Colors.grey.shade200)),
+            decoration: const BoxDecoration(
+              color: cardColor,
+              border: Border(bottom: BorderSide(color: Colors.white10)),
             ),
             child: Column(
               children: [
@@ -33,23 +42,23 @@ class AnalyticsScreen extends ConsumerWidget {
                   child: Container(
                     padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
                     decoration: BoxDecoration(
-                      color: Theme.of(context).primaryColor.withOpacity(0.08),
+                      color: Colors.yellow.withOpacity(0.1),
                       borderRadius: BorderRadius.circular(12),
-                      border: Border.all(color: Theme.of(context).primaryColor.withOpacity(0.2)),
+                      border: Border.all(color: Colors.yellow.withOpacity(0.3)),
                     ),
                     child: Row(
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
-                        Row(
+                        const Row(
                           children: [
-                            Icon(Icons.calendar_month_rounded, color: Theme.of(context).primaryColor, size: 20),
-                            const SizedBox(width: 10),
-                            Text("Period", style: TextStyle(fontWeight: FontWeight.bold, color: Theme.of(context).primaryColor)),
+                            Icon(Icons.calendar_month_rounded, color: Colors.yellow, size: 20),
+                            SizedBox(width: 10),
+                            Text("Period", style: TextStyle(fontWeight: FontWeight.bold, color: Colors.yellow)),
                           ],
                         ),
                         Text(
                           "${DateFormat('dd MMM').format(currentRange.start)} - ${DateFormat('dd MMM').format(currentRange.end)}",
-                          style: TextStyle(fontWeight: FontWeight.bold, color: isDark ? Colors.white : Colors.black87),
+                          style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.white),
                         ),
                       ],
                     ),
@@ -66,6 +75,11 @@ class AnalyticsScreen extends ConsumerWidget {
                       _FilterChip(label: "This Week", onTap: () => _setRange(ref, 'Week')),
                       const SizedBox(width: 8),
                       _FilterChip(label: "This Month", onTap: () => _setRange(ref, 'Month')),
+                      const SizedBox(width: 8),
+                      // 👇 NEW FILTERS
+                      _FilterChip(label: "This Year", onTap: () => _setRange(ref, 'Year')),
+                      const SizedBox(width: 8),
+                      _FilterChip(label: "All Time", onTap: () => _setRange(ref, 'All')),
                     ],
                   ),
                 ),
@@ -77,7 +91,7 @@ class AnalyticsScreen extends ConsumerWidget {
           Expanded(
             child: salesAsync.when(
               data: (allInvoices) {
-                // 👇 FILTER: Only show sales where Due is effectively 0 (Fully Paid)
+                // Filter: Only show sales where Due is effectively 0 (Fully Paid)
                 final invoices = allInvoices.where((invoice) {
                   final due = (invoice['dueAmount'] ?? 0).toDouble();
                   return due <= 0.5;
@@ -97,9 +111,9 @@ class AnalyticsScreen extends ConsumerWidget {
                     child: Column(
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [
-                        Icon(Icons.check_circle_outline, size: 80, color: Colors.grey.withOpacity(0.3)),
+                        Icon(Icons.check_circle_outline, size: 80, color: Colors.white.withOpacity(0.1)),
                         const SizedBox(height: 16),
-                        Text("No fully paid records found", style: TextStyle(color: Colors.grey.withOpacity(0.8))),
+                        Text("No fully paid records found", style: TextStyle(color: Colors.white.withOpacity(0.5))),
                       ],
                     ),
                   );
@@ -117,7 +131,7 @@ class AnalyticsScreen extends ConsumerWidget {
                           child: _MetricCard(
                             title: "Revenue (Cash)",
                             value: "৳${totalRevenue.toStringAsFixed(0)}",
-                            color: Colors.blue,
+                            color: Colors.green, // Revenue is Green
                             icon: Icons.attach_money,
                           ),
                         ),
@@ -126,7 +140,7 @@ class AnalyticsScreen extends ConsumerWidget {
                           child: _MetricCard(
                             title: "Net Profit",
                             value: "৳${totalProfit.toStringAsFixed(0)}",
-                            color: totalProfit < 0 ? Colors.red : Colors.green,
+                            color: totalProfit < 0 ? Colors.red : Colors.green, // Green/Red Logic
                             icon: totalProfit < 0 ? Icons.trending_down : Icons.trending_up,
                             isHighlighted: true,
                           ),
@@ -138,7 +152,7 @@ class AnalyticsScreen extends ConsumerWidget {
                     _MetricCard(
                       title: "Completed Orders",
                       value: "$totalOrders",
-                      color: Colors.orange,
+                      color: Colors.yellow, // Count is Yellow
                       icon: Icons.receipt_long,
                       isHorizontal: true,
                     ),
@@ -154,10 +168,10 @@ class AnalyticsScreen extends ConsumerWidget {
                             padding: const EdgeInsets.symmetric(vertical: 12.0),
                             child: Text(
                               entry.key,
-                              style: TextStyle(
+                              style: const TextStyle(
                                   fontSize: 16,
                                   fontWeight: FontWeight.bold,
-                                  color: isDark ? Colors.white70 : Colors.grey[800]
+                                  color: Colors.yellow // Header Yellow
                               ),
                             ),
                           ),
@@ -166,7 +180,6 @@ class AnalyticsScreen extends ConsumerWidget {
                             final timeStr = DateFormat('hh:mm a').format(date);
                             final itemCount = invoice['itemCount'] ?? 1;
 
-                            // 👇 2. NAVIGATION LOGIC ADDED
                             return InkWell(
                               onTap: () {
                                 Navigator.push(
@@ -192,8 +205,8 @@ class AnalyticsScreen extends ConsumerWidget {
                   ],
                 );
               },
-              loading: () => const Center(child: CircularProgressIndicator()),
-              error: (e, s) => Center(child: Text("Error: $e")),
+              loading: () => const Center(child: CircularProgressIndicator(color: Colors.yellow)),
+              error: (e, s) => Center(child: Text("Error: $e", style: const TextStyle(color: Colors.red))),
             ),
           ),
         ],
@@ -231,10 +244,14 @@ class AnalyticsScreen extends ConsumerWidget {
     if (type == 'Today') {
       start = DateTime(now.year, now.month, now.day, 0, 0, 0);
     } else if (type == 'Week') {
-      start = now.subtract(Duration(days: now.weekday));
+      start = now.subtract(Duration(days: now.weekday - 1));
       start = DateTime(start.year, start.month, start.day, 0, 0, 0);
     } else if (type == 'Month') {
       start = DateTime(now.year, now.month, 1, 0, 0, 0);
+    } else if (type == 'Year') {
+      start = DateTime(now.year, 1, 1, 0, 0, 0);
+    } else if (type == 'All') {
+      start = DateTime(2020, 1, 1, 0, 0, 0);
     } else {
       return;
     }
@@ -247,6 +264,19 @@ class AnalyticsScreen extends ConsumerWidget {
       firstDate: DateTime(2023),
       lastDate: DateTime.now(),
       currentDate: DateTime.now(),
+      builder: (context, child) {
+        return Theme(
+          data: ThemeData.dark().copyWith(
+            colorScheme: const ColorScheme.dark(
+              primary: Colors.yellow,
+              onPrimary: Colors.black,
+              surface: Color(0xFF1E293B),
+              onSurface: Colors.white,
+            ),
+          ),
+          child: child!,
+        );
+      },
     );
 
     if (picked != null) {
@@ -265,18 +295,17 @@ class _FilterChip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
     return InkWell(
       onTap: onTap,
       borderRadius: BorderRadius.circular(20),
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
         decoration: BoxDecoration(
-          color: isDark ? const Color(0xFF1E293B) : Colors.grey.shade100,
+          color: const Color(0xFF1E293B),
           borderRadius: BorderRadius.circular(20),
-          border: Border.all(color: isDark ? Colors.white10 : Colors.grey.shade300),
+          border: Border.all(color: Colors.white24),
         ),
-        child: Text(label, style: TextStyle(color: isDark ? Colors.white70 : Colors.grey.shade800, fontSize: 13, fontWeight: FontWeight.w500)),
+        child: Text(label, style: const TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.w500)),
       ),
     );
   }
@@ -301,19 +330,15 @@ class _MetricCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-
     return Container(
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
-        color: isHighlighted
-            ? color
-            : (isDark ? const Color(0xFF1E293B) : Colors.white),
+        color: const Color(0xFF1E293B),
         borderRadius: BorderRadius.circular(20),
-        border: isHighlighted ? null : Border.all(color: color.withOpacity(0.2)),
+        border: isHighlighted ? Border.all(color: color, width: 2) : Border.all(color: Colors.white10),
         boxShadow: [
           BoxShadow(
-            color: color.withOpacity(isHighlighted ? 0.3 : 0.05),
+            color: Colors.black.withOpacity(0.2),
             blurRadius: 10,
             offset: const Offset(0, 4),
           ),
@@ -331,8 +356,8 @@ class _MetricCard extends StatelessWidget {
           Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(title, style: TextStyle(color: isDark ? Colors.white60 : Colors.grey[600], fontSize: 12)),
-              Text(value, style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: isDark ? Colors.white : Colors.black87)),
+              Text(title, style: const TextStyle(color: Colors.white70, fontSize: 12)),
+              Text(value, style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Colors.white)),
             ],
           ),
         ],
@@ -343,16 +368,16 @@ class _MetricCard extends StatelessWidget {
           Container(
             padding: const EdgeInsets.all(8),
             decoration: BoxDecoration(
-              color: isHighlighted ? Colors.white.withOpacity(0.2) : color.withOpacity(0.1),
+              color: color.withOpacity(0.1),
               borderRadius: BorderRadius.circular(8),
             ),
-            child: Icon(icon, color: isHighlighted ? Colors.white : color, size: 24),
+            child: Icon(icon, color: color, size: 24),
           ),
           const SizedBox(height: 12),
           Text(
             title,
-            style: TextStyle(
-              color: isHighlighted ? Colors.white.withOpacity(0.9) : (isDark ? Colors.white60 : Colors.grey[600]),
+            style: const TextStyle(
+              color: Colors.white70,
               fontSize: 12,
               fontWeight: FontWeight.w500,
             ),
@@ -363,7 +388,7 @@ class _MetricCard extends StatelessWidget {
             style: TextStyle(
               fontSize: 22,
               fontWeight: FontWeight.bold,
-              color: isHighlighted ? Colors.white : (isDark ? Colors.white : Colors.black87),
+              color: isHighlighted ? color : Colors.white,
             ),
           ),
         ],
@@ -389,41 +414,39 @@ class _TransactionCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-
     return Container(
       margin: const EdgeInsets.only(bottom: 12),
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: isDark ? const Color(0xFF1E293B) : Colors.white,
+        color: const Color(0xFF1E293B),
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: isDark ? Colors.white10 : Colors.grey.shade100),
+        border: Border.all(color: Colors.white10),
       ),
       child: Row(
         children: [
           Container(
             padding: const EdgeInsets.all(10),
             decoration: BoxDecoration(
-              color: Colors.blue.withOpacity(0.1),
+              color: Colors.white.withOpacity(0.05),
               shape: BoxShape.circle,
             ),
-            child: const Icon(Icons.receipt_long_rounded, color: Colors.blue, size: 20),
+            child: const Icon(Icons.receipt_long_rounded, color: Colors.yellow, size: 20),
           ),
           const SizedBox(width: 16),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(title, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
+                Text(title, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15, color: Colors.white)),
                 const SizedBox(height: 2),
-                Text("$subtitle • $date", style: const TextStyle(fontSize: 12, color: Colors.grey)),
+                Text("$subtitle • $date", style: const TextStyle(fontSize: 12, color: Colors.white54)),
               ],
             ),
           ),
           Column(
             crossAxisAlignment: CrossAxisAlignment.end,
             children: [
-              Text(amount, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+              Text(amount, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: Colors.green)),
               Container(
                 margin: const EdgeInsets.only(top: 4),
                 padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
@@ -433,7 +456,7 @@ class _TransactionCard extends StatelessWidget {
                 ),
                 child: Text(
                   "+$profit",
-                  style: TextStyle(fontSize: 10, color: Colors.green.shade700, fontWeight: FontWeight.bold),
+                  style: TextStyle(fontSize: 10, color: Colors.green.shade400, fontWeight: FontWeight.bold),
                 ),
               ),
             ],
