@@ -1,10 +1,20 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:flutter/cupertino.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../authentication/data/auth_repository.dart';
 import '../domain/product_model.dart';
 
+// 1. Repository Provider
 final inventoryRepositoryProvider = Provider((ref) => InventoryRepository(FirebaseFirestore.instance, ref));
+
+// 2. Stream Providers (MUST BE HERE)
+final inventoryStreamProvider = StreamProvider<List<Product>>((ref) {
+  final repository = ref.watch(inventoryRepositoryProvider);
+  return repository.watchInventory();
+});
+
+final stockHistoryProvider = StreamProvider<List<Map<String, dynamic>>>((ref) {
+  return ref.watch(inventoryRepositoryProvider).watchStockHistory();
+});
 
 class InventoryRepository {
   final FirebaseFirestore _firestore;
@@ -13,7 +23,6 @@ class InventoryRepository {
   InventoryRepository(this._firestore, this._ref);
 
   // --- 1. RECEIVE STOCK (BATCH) ---
-  // 👇 UPDATED: Added 'batchDate' parameter
   Future<void> receiveBatchProducts(List<Product> newProducts, DateTime batchDate) async {
     final user = _ref.read(authServiceProvider).currentUser;
     if (user == null) throw Exception("User not logged in");
@@ -21,17 +30,15 @@ class InventoryRepository {
     final batch = _firestore.batch();
     final masterLogRef = _firestore.collection('inventory_batches').doc();
 
-    // 1. Create Master Batch Record
     batch.set(masterLogRef, {
       'type': 'INWARD_CHALLAN',
       'itemCount': newProducts.length,
       'createdBy': user.email,
-      // 👇 UPDATED: Use the passed batchDate instead of serverTimestamp()
       'timestamp': Timestamp.fromDate(batchDate),
     });
 
     for (var product in newProducts) {
-      // 2. Check for existing product (Simple check by Model)
+      // 1. Fetch products with same MODEL
       final querySnapshot = await _firestore
           .collection('products')
           .where('model', isEqualTo: product.model)
@@ -40,35 +47,43 @@ class InventoryRepository {
       DocumentReference? targetProductRef;
       int oldStock = 0;
 
-      // Find exact match (Model + Category)
+      // 2. Find EXACT match (Category + MRP + Commission)
       if (querySnapshot.docs.isNotEmpty) {
         for (var doc in querySnapshot.docs) {
-          if (doc['category'] == product.category) {
+          final data = doc.data();
+          final String dbCategory = data['category'] ?? '';
+          final double dbMrp = (data['marketPrice'] ?? 0).toDouble();
+          final double dbComm = (data['commissionPercent'] ?? 0).toDouble();
+
+          final bool isCategoryMatch = dbCategory == product.category;
+          final bool isMrpMatch = (dbMrp - product.marketPrice).abs() < 0.01;
+          final bool isCommMatch = (dbComm - product.commissionPercent).abs() < 0.01;
+
+          if (isCategoryMatch && isMrpMatch && isCommMatch) {
             targetProductRef = doc.reference;
-            oldStock = (doc['currentStock'] as num).toInt();
+            oldStock = (data['currentStock'] as num).toInt();
             break;
           }
         }
       }
 
-      // 3. Update or Create Product
+      // 3. Update or Create
       if (targetProductRef != null) {
         batch.update(targetProductRef, {
           'currentStock': FieldValue.increment(product.currentStock),
           'marketPrice': product.marketPrice,
+          'commissionPercent': product.commissionPercent,
           'buyingPrice': product.buyingPrice,
-          // Update lastUpdated to the User's Batch Date
           'lastUpdated': Timestamp.fromDate(batchDate),
         });
       } else {
         targetProductRef = _firestore.collection('products').doc();
-        // Ensure new product has the correct date
         final productData = product.toMap();
         productData['lastUpdated'] = Timestamp.fromDate(batchDate);
         batch.set(targetProductRef, productData);
       }
 
-      // 4. Audit Log
+      // 4. Log
       final logRef = _firestore.collection('inventory_logs').doc();
       batch.set(logRef, {
         'batchId': masterLogRef.id,
@@ -84,7 +99,7 @@ class InventoryRepository {
         'oldStock': oldStock,
         'newStock': oldStock + product.currentStock,
         'receivedBy': user.email,
-        'timestamp': Timestamp.fromDate(batchDate), // Use Batch Date for consistency
+        'timestamp': Timestamp.fromDate(batchDate),
       });
     }
 
@@ -104,7 +119,7 @@ class InventoryRepository {
     }).toList());
   }
 
-  // --- 3. GET BATCH DETAILS (For PDF) ---
+  // --- 3. GET BATCH ITEMS ---
   Future<List<Product>> getHistoryBatchItems(String batchId) async {
     final snapshot = await _firestore
         .collection('inventory_logs')
@@ -129,7 +144,7 @@ class InventoryRepository {
     }).toList();
   }
 
-  // ... (Keep existing update/delete/watchInventory methods) ...
+  // --- 4. CRUD ---
   Future<void> updateProduct(Product product) async {
     final batch = _firestore.batch();
     final docRef = _firestore.collection('products').doc(product.id);
@@ -153,12 +168,3 @@ class InventoryRepository {
     });
   }
 }
-
-final inventoryStreamProvider = StreamProvider<List<Product>>((ref) {
-  final repository = ref.watch(inventoryRepositoryProvider);
-  return repository.watchInventory();
-});
-
-final stockHistoryProvider = StreamProvider<List<Map<String, dynamic>>>((ref) {
-  return ref.watch(inventoryRepositoryProvider).watchStockHistory();
-});
