@@ -38,7 +38,7 @@ class _SellProductScreenState extends ConsumerState<SellProductScreen> {
   final _paidAmountController = TextEditingController();
 
   // Item Details
-  Product? _selectedProduct;
+  Product? _selectedProduct; // Used for Single Selection Form
   final _qtyController = TextEditingController(text: '1');
 
   // 3-Way Pricing Controllers
@@ -46,7 +46,7 @@ class _SellProductScreenState extends ConsumerState<SellProductScreen> {
   final _discountAmountController = TextEditingController(text: '0');
   final _finalPriceController = TextEditingController(text: '0');
 
-  // Focus Nodes for Pricing Logic
+  // Focus Nodes
   final _discPercentFocus = FocusNode();
   final _discAmountFocus = FocusNode();
   final _finalPriceFocus = FocusNode();
@@ -63,12 +63,10 @@ class _SellProductScreenState extends ConsumerState<SellProductScreen> {
     super.initState();
     _selectedProduct = widget.product;
 
-    // Initial Calc if product passed
     if (_selectedProduct != null) {
       _resetPricingFields();
     }
 
-    // CHECK FOR EDIT MODE
     if (widget.existingInvoice != null && widget.existingItems != null) {
       _loadExistingData();
     }
@@ -80,18 +78,14 @@ class _SellProductScreenState extends ConsumerState<SellProductScreen> {
     _finalPriceController.addListener(_onFinalPriceChanged);
   }
 
-  // LOAD DATA FOR EDITING
   void _loadExistingData() async {
     final invoice = widget.existingInvoice!;
-
-    // 1. Populate Customer & Payment Info
     _customerNameController.text = invoice['customerName'] ?? '';
     _customerPhoneController.text = invoice['customerPhone'] ?? '';
     _customerAddressController.text = invoice['customerAddress'] ?? '';
     _paymentStatus = invoice['paymentStatus'] ?? 'Cash';
     _paidAmountController.text = (invoice['paidAmount'] ?? 0).toString();
 
-    // 2. Handle Date
     if (invoice['timestamp'] != null) {
       try {
         final ts = invoice['timestamp'];
@@ -101,15 +95,12 @@ class _SellProductScreenState extends ConsumerState<SellProductScreen> {
       }
     }
 
-    // 3. Reconstruct Cart Items
-    // We need real Product objects to check stock limits and get buying prices
     final allProducts = await ref.read(inventoryStreamProvider.future);
 
     if (mounted) {
       setState(() {
         for (var itemData in widget.existingItems!) {
           final productId = itemData['productId'];
-          // Find product in current inventory or create placeholder if deleted
           final product = allProducts.firstWhere(
                 (p) => p.id == productId,
             orElse: () => Product(
@@ -121,8 +112,7 @@ class _SellProductScreenState extends ConsumerState<SellProductScreen> {
                 marketPrice: (itemData['mrp'] ?? 0).toDouble(),
                 commissionPercent: 0,
                 buyingPrice: 0,
-                currentStock: 0 // Stock might be 0 until restored
-            ),
+                currentStock: 0),
           );
 
           _cartItems.add(CartItem(
@@ -137,7 +127,6 @@ class _SellProductScreenState extends ConsumerState<SellProductScreen> {
   }
 
   // --- PRICING LOGIC ---
-
   void _resetPricingFields() {
     if (_selectedProduct == null) return;
     double mrp = _selectedProduct!.marketPrice;
@@ -163,7 +152,6 @@ class _SellProductScreenState extends ConsumerState<SellProductScreen> {
     double totalMrp = mrp * qty;
 
     double percent = double.tryParse(_discountPercentController.text) ?? 0;
-
     double discountAmt = totalMrp * (percent / 100);
     double finalPrice = totalMrp - discountAmt;
 
@@ -185,7 +173,6 @@ class _SellProductScreenState extends ConsumerState<SellProductScreen> {
     if (totalMrp == 0) return;
 
     double discountAmt = double.tryParse(_discountAmountController.text) ?? 0;
-
     double percent = (discountAmt / totalMrp) * 100;
     double finalPrice = totalMrp - discountAmt;
 
@@ -210,39 +197,41 @@ class _SellProductScreenState extends ConsumerState<SellProductScreen> {
     _discountPercentController.text = percent.toStringAsFixed(2);
   }
 
-  // --- CART EDIT LOGIC ---
-  void _editCartItem(int index) {
-    final item = _cartItems[index];
-    setState(() {
-      _cartItems.removeAt(index);
-      _selectedProduct = item.product;
-      _qtyController.text = item.quantity.toString();
-      _finalPriceController.text = item.finalPrice.toStringAsFixed(0);
-      _discountPercentController.text = item.discountPercent.toStringAsFixed(2);
-
-      double totalMrp = item.product.marketPrice * item.quantity;
-      double distAmt = totalMrp - item.finalPrice;
-      _discountAmountController.text = distAmt.toStringAsFixed(0);
-      _discountType = SalesDiscountType.percentage;
-    });
-
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text("Editing ${item.product.model}..."), duration: const Duration(milliseconds: 600)),
-    );
-  }
-
-  Future<void> _pickDate() async {
-    final picked = await showDatePicker(
+  // --- SHOW PRODUCT SELECTION DIALOG (NEW FEATURE) ---
+  void _openProductSelector(List<Product> allProducts) async {
+    final List<Product>? results = await showModalBottomSheet(
       context: context,
-      initialDate: _selectedDate,
-      firstDate: DateTime(2020),
-      lastDate: DateTime.now(),
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) => _ProductSelectionSheet(products: allProducts),
     );
-    if (picked != null) {
-      setState(() => _selectedDate = DateTime(
-          picked.year, picked.month, picked.day,
-          DateTime.now().hour, DateTime.now().minute
-      ));
+
+    if (results != null && results.isNotEmpty) {
+      if (results.length == 1) {
+        // Single Selection: Populate form for manual adjustment
+        setState(() {
+          _selectedProduct = results.first;
+          _resetPricingFields();
+        });
+      } else {
+        // Multi Selection: Add directly to cart with defaults
+        setState(() {
+          for (var p in results) {
+            _cartItems.add(CartItem(
+              product: p,
+              quantity: 1,
+              discountPercent: 0,
+              finalPrice: p.marketPrice,
+            ));
+          }
+          // Clear current selection form if any
+          _selectedProduct = null;
+          _resetPricingFields();
+        });
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text("${results.length} items added to cart")),
+        );
+      }
     }
   }
 
@@ -254,8 +243,6 @@ class _SellProductScreenState extends ConsumerState<SellProductScreen> {
     }
 
     final qty = int.parse(_qtyController.text);
-
-    // In edit mode, we skip local stock check warning because stock is yet to be restored
     if (qty > _selectedProduct!.currentStock && widget.existingInvoice == null) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('Insufficient Stock! Max: ${_selectedProduct!.currentStock}'), backgroundColor: Colors.red),
@@ -278,7 +265,21 @@ class _SellProductScreenState extends ConsumerState<SellProductScreen> {
       _discountPercentController.text = '0';
       _discountAmountController.text = '0';
     });
-    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Added to Cart"), duration: Duration(milliseconds: 600)));
+  }
+
+  void _editCartItem(int index) {
+    final item = _cartItems[index];
+    setState(() {
+      _cartItems.removeAt(index);
+      _selectedProduct = item.product;
+      _qtyController.text = item.quantity.toString();
+      _finalPriceController.text = item.finalPrice.toStringAsFixed(0);
+      _discountPercentController.text = item.discountPercent.toStringAsFixed(2);
+      double totalMrp = item.product.marketPrice * item.quantity;
+      double distAmt = totalMrp - item.finalPrice;
+      _discountAmountController.text = distAmt.toStringAsFixed(0);
+      _discountType = SalesDiscountType.percentage;
+    });
   }
 
   Future<void> _processBatchSale() async {
@@ -298,28 +299,18 @@ class _SellProductScreenState extends ConsumerState<SellProductScreen> {
       paidAmount = 0;
     } else if (_paymentStatus == 'Partial') {
       paidAmount = double.tryParse(_paidAmountController.text) ?? 0;
-      if (paidAmount <= 0 || paidAmount >= totalCartAmount) {
-        ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text("Partial Amount must be greater than 0 and less than Total"))
-        );
-        return;
-      }
     }
 
     double dueAmount = totalCartAmount - paidAmount;
-    if(dueAmount < 0) dueAmount = 0;
+    if (dueAmount < 0) dueAmount = 0;
 
     setState(() => _isLoading = true);
     try {
-      // 1. IF UPDATING: Delete Old Invoice First (Restores Stock)
-      // This is awaited, so it completes before we try to sell again
       if (widget.existingInvoice != null) {
         final oldInvoiceId = widget.existingInvoice!['id'];
         await ref.read(salesRepositoryProvider).deleteInvoiceAndRestoreStock(oldInvoiceId);
       }
 
-      // 2. Create New Sale (Checks & Deducts Stock)
-      // Since stock is restored in step 1, this will now succeed even for sold-out items
       await ref.read(salesRepositoryProvider).sellBatchProducts(
         items: _cartItems,
         customerName: _customerNameController.text.trim(),
@@ -341,8 +332,8 @@ class _SellProductScreenState extends ConsumerState<SellProductScreen> {
 
       if (mounted) {
         if (widget.existingInvoice != null) {
-          Navigator.pop(context); // Close Sell Screen
-          Navigator.pop(context); // Close Detail Screen
+          Navigator.pop(context);
+          Navigator.pop(context);
           ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Invoice Updated Successfully")));
         } else {
           setState(() {
@@ -360,7 +351,6 @@ class _SellProductScreenState extends ConsumerState<SellProductScreen> {
         }
       }
     } catch (e) {
-      // 👇 PRINT ERROR TO CONSOLE
       debugPrint('Error updating/processing invoice: $e');
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: $e')));
     } finally {
@@ -479,7 +469,7 @@ class _SellProductScreenState extends ConsumerState<SellProductScreen> {
 
               const SizedBox(height: 20),
 
-              // 2. ADD ITEM (UPDATED PRICING)
+              // 2. PRODUCT SELECTION & ADD
               Container(
                 padding: const EdgeInsets.all(16),
                 decoration: BoxDecoration(
@@ -493,34 +483,34 @@ class _SellProductScreenState extends ConsumerState<SellProductScreen> {
                     Text("Add Item to Cart", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: isDark ? Colors.white : Colors.black87)),
                     const SizedBox(height: 12),
 
-                    // Product Selector
+                    // 👇 REPLACED DROPDOWN WITH CUSTOM SELECTOR
                     inventoryAsync.when(
                       data: (products) {
-                        return DropdownButtonFormField<Product>(
-                          isExpanded: true,
-                          value: _selectedProduct != null && products.any((p) => p.id == _selectedProduct!.id)
-                              ? products.firstWhere((p) => p.id == _selectedProduct!.id)
-                              : null,
-                          hint: Text("Select Product", style: TextStyle(color: isDark ? Colors.white60 : Colors.grey)),
-                          dropdownColor: isDark ? const Color(0xFF1E293B) : Colors.white,
-                          style: inputTextStyle,
-                          items: products.map((p) {
-                            return DropdownMenuItem(
-                              value: p,
-                              child: Text(
-                                "${p.model} - ${p.name} (Stock: ${p.currentStock})",
-                                overflow: TextOverflow.ellipsis,
-                                style: TextStyle(color: p.currentStock == 0 ? Colors.redAccent : (isDark ? Colors.white : Colors.black87)),
-                              ),
-                            );
-                          }).toList(),
-                          onChanged: (p) {
-                            setState(() {
-                              _selectedProduct = p;
-                              _resetPricingFields();
-                            });
-                          },
-                          decoration: _inputDecor("Product"),
+                        return InkWell(
+                          onTap: () => _openProductSelector(products),
+                          child: InputDecorator(
+                            decoration: _inputDecor("Select Product", Icons.search),
+                            child: Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              children: [
+                                Expanded(
+                                  child: Text(
+                                    _selectedProduct != null
+                                        ? "${_selectedProduct!.model} - ${_selectedProduct!.name}"
+                                        : "Tap to search & select products...",
+                                    style: TextStyle(
+                                      color: _selectedProduct != null
+                                          ? (isDark ? Colors.white : Colors.black87)
+                                          : (isDark ? Colors.white54 : Colors.grey),
+                                      fontWeight: _selectedProduct != null ? FontWeight.bold : FontWeight.normal,
+                                    ),
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                ),
+                                const Icon(Icons.arrow_forward_ios_rounded, size: 14, color: Colors.grey),
+                              ],
+                            ),
+                          ),
                         );
                       },
                       loading: () => const LinearProgressIndicator(),
@@ -541,7 +531,6 @@ class _SellProductScreenState extends ConsumerState<SellProductScreen> {
                           ),
                         ),
                         const SizedBox(width: 10),
-                        // Discount Type Toggle
                         ToggleButtons(
                           borderRadius: BorderRadius.circular(8),
                           constraints: const BoxConstraints(minHeight: 48, minWidth: 60),
@@ -549,7 +538,6 @@ class _SellProductScreenState extends ConsumerState<SellProductScreen> {
                           onPressed: (index) {
                             setState(() {
                               _discountType = index == 0 ? SalesDiscountType.percentage : SalesDiscountType.flat;
-                              // Force re-calc just in case field focus logic misses
                               _onPercentChanged();
                             });
                           },
@@ -562,10 +550,8 @@ class _SellProductScreenState extends ConsumerState<SellProductScreen> {
                     // 3-Way Pricing Row
                     Row(
                       children: [
-                        // DISCOUNT INPUT
                         Expanded(
                           child: TextFormField(
-                            // Swap controller based on Type
                             controller: _discountType == SalesDiscountType.percentage ? _discountPercentController : _discountAmountController,
                             focusNode: _discountType == SalesDiscountType.percentage ? _discPercentFocus : _discAmountFocus,
                             keyboardType: TextInputType.number,
@@ -574,8 +560,6 @@ class _SellProductScreenState extends ConsumerState<SellProductScreen> {
                           ),
                         ),
                         const SizedBox(width: 10),
-
-                        // FINAL PRICE INPUT (Manual Override)
                         Expanded(
                           child: TextFormField(
                             controller: _finalPriceController,
@@ -730,6 +714,16 @@ class _SellProductScreenState extends ConsumerState<SellProductScreen> {
     );
   }
 
+  Future<void> _pickDate() async {
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: _selectedDate,
+      firstDate: DateTime(2020),
+      lastDate: DateTime.now(),
+    );
+    if (picked != null) setState(() => _selectedDate = picked);
+  }
+
   InputDecoration _inputDecor(String label, [IconData? icon]) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     return InputDecoration(
@@ -758,6 +752,199 @@ class _SectionHeader extends StatelessWidget {
         const SizedBox(width: 8),
         Text(title, style: TextStyle(color: isDark ? Colors.yellowAccent : Theme.of(context).primaryColor, fontWeight: FontWeight.bold, fontSize: 16)),
       ],
+    );
+  }
+}
+
+// --------------------------------------------------------
+// 👇 NEW WIDGET: Advanced Product Selection Sheet
+// --------------------------------------------------------
+class _ProductSelectionSheet extends StatefulWidget {
+  final List<Product> products;
+  const _ProductSelectionSheet({required this.products});
+
+  @override
+  State<_ProductSelectionSheet> createState() => _ProductSelectionSheetState();
+}
+
+class _ProductSelectionSheetState extends State<_ProductSelectionSheet> {
+  String _searchQuery = "";
+  String _selectedCategory = "All";
+  final Set<Product> _selectedProducts = {};
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final backgroundColor = isDark ? const Color(0xFF0F172A) : Colors.white;
+    final cardColor = isDark ? const Color(0xFF1E293B) : Colors.grey.shade50;
+
+    // 1. Extract Categories
+    final categories = ["All", ...widget.products.map((p) => p.category).toSet().toList()];
+
+    // 2. Filter Products
+    final filteredProducts = widget.products.where((p) {
+      final matchesSearch = p.name.toLowerCase().contains(_searchQuery.toLowerCase()) ||
+          p.model.toLowerCase().contains(_searchQuery.toLowerCase());
+      final matchesCategory = _selectedCategory == "All" || p.category == _selectedCategory;
+      return matchesSearch && matchesCategory;
+    }).toList();
+
+    return Container(
+      height: MediaQuery.of(context).size.height * 0.85,
+      decoration: BoxDecoration(
+        color: backgroundColor,
+        borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      child: Column(
+        children: [
+          // Handle Bar
+          Container(
+            margin: const EdgeInsets.symmetric(vertical: 10),
+            width: 40,
+            height: 4,
+            decoration: BoxDecoration(color: Colors.grey.withOpacity(0.3), borderRadius: BorderRadius.circular(2)),
+          ),
+
+          // Header
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text("Select Products", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: isDark ? Colors.white : Colors.black)),
+                TextButton(
+                  onPressed: () => Navigator.pop(context, _selectedProducts.toList()),
+                  child: Text("Done (${_selectedProducts.length})"),
+                )
+              ],
+            ),
+          ),
+
+          // Search Bar
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+            child: TextField(
+              style: TextStyle(color: isDark ? Colors.white : Colors.black),
+              decoration: InputDecoration(
+                hintText: "Search by Model or Name...",
+                hintStyle: TextStyle(color: isDark ? Colors.white54 : Colors.grey),
+                prefixIcon: const Icon(Icons.search),
+                filled: true,
+                fillColor: cardColor,
+                border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
+                contentPadding: const EdgeInsets.symmetric(horizontal: 12),
+              ),
+              onChanged: (val) => setState(() => _searchQuery = val),
+            ),
+          ),
+
+          // Categories List
+          SizedBox(
+            height: 50,
+            child: ListView.builder(
+              scrollDirection: Axis.horizontal,
+              padding: const EdgeInsets.symmetric(horizontal: 16),
+              itemCount: categories.length,
+              itemBuilder: (ctx, index) {
+                final cat = categories[index];
+                final isSelected = _selectedCategory == cat;
+                return Padding(
+                  padding: const EdgeInsets.only(right: 8),
+                  child: FilterChip(
+                    label: Text(cat),
+                    selected: isSelected,
+                    onSelected: (v) => setState(() => _selectedCategory = cat),
+                    backgroundColor: cardColor,
+                    selectedColor: Colors.blue.withOpacity(0.2),
+                    labelStyle: TextStyle(
+                      color: isSelected ? Colors.blue : (isDark ? Colors.white70 : Colors.black87),
+                      fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+                    ),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20), side: BorderSide.none),
+                  ),
+                );
+              },
+            ),
+          ),
+
+          const Divider(),
+
+          // Product List
+          Expanded(
+            child: filteredProducts.isEmpty
+                ? Center(child: Text("No products found", style: TextStyle(color: isDark ? Colors.white54 : Colors.grey)))
+                : ListView.builder(
+              padding: const EdgeInsets.all(16),
+              itemCount: filteredProducts.length,
+              itemBuilder: (ctx, index) {
+                final product = filteredProducts[index];
+                final isSelected = _selectedProducts.any((p) => p.id == product.id);
+                final hasStock = product.currentStock > 0;
+
+                return Card(
+                  color: isSelected ? Colors.blue.withOpacity(0.1) : cardColor,
+                  margin: const EdgeInsets.only(bottom: 8),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                    side: isSelected ? const BorderSide(color: Colors.blue) : BorderSide.none,
+                  ),
+                  child: ListTile(
+                    enabled: hasStock,
+                    leading: Checkbox(
+                      value: isSelected,
+                      onChanged: hasStock ? (val) {
+                        setState(() {
+                          if (val == true) {
+                            _selectedProducts.add(product);
+                          } else {
+                            _selectedProducts.removeWhere((p) => p.id == product.id);
+                          }
+                        });
+                      } : null,
+                    ),
+                    title: Text(product.model, style: TextStyle(fontWeight: FontWeight.bold, color: isDark ? Colors.white : Colors.black87)),
+                    subtitle: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(product.name, style: TextStyle(color: isDark ? Colors.white60 : Colors.grey[700])),
+                        Text("Stock: ${product.currentStock}", style: TextStyle(color: hasStock ? Colors.green : Colors.red, fontWeight: FontWeight.bold, fontSize: 12)),
+                      ],
+                    ),
+                    trailing: Text("৳${product.marketPrice}", style: TextStyle(fontWeight: FontWeight.bold, color: isDark ? Colors.white : Colors.black)),
+                    onTap: hasStock ? () {
+                      setState(() {
+                        if (isSelected) {
+                          _selectedProducts.removeWhere((p) => p.id == product.id);
+                        } else {
+                          _selectedProducts.add(product);
+                        }
+                      });
+                    } : null,
+                  ),
+                );
+              },
+            ),
+          ),
+
+          // Bottom Bar
+          Container(
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: cardColor,
+              boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.1), blurRadius: 10, offset: const Offset(0, -4))],
+            ),
+            child: SizedBox(
+              width: double.infinity,
+              height: 50,
+              child: ElevatedButton(
+                onPressed: _selectedProducts.isEmpty ? null : () => Navigator.pop(context, _selectedProducts.toList()),
+                style: ElevatedButton.styleFrom(backgroundColor: Colors.blue, foregroundColor: Colors.white),
+                child: Text("ADD ${_selectedProducts.length} ITEMS TO CART"),
+              ),
+            ),
+          ),
+        ],
+      ),
     );
   }
 }
