@@ -170,7 +170,7 @@ class _StockHistoryScreenState extends ConsumerState<StockHistoryScreen> {
       }
       await ReceivingPdfGenerator.generateBatchReceivingMemo(products: items, receivedBy: user, receivingDate: date);
     } catch (e) {
-      debugPrint("Error printing batch: $e"); // Added console log here as well
+      debugPrint("Error printing batch: $e");
       if (mounted) {
         Navigator.pop(context);
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Error: $e")));
@@ -185,32 +185,58 @@ class _BatchItemsSheet extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final bgColor = isDark ? const Color(0xFF0F172A) : Colors.white;
+    final cardColor = isDark ? const Color(0xFF1E293B) : Colors.grey.shade50;
+
     return DraggableScrollableSheet(
       initialChildSize: 0.7,
       maxChildSize: 0.9,
       builder: (_, scrollController) {
         return Container(
           padding: const EdgeInsets.all(16),
-          color: Theme.of(context).scaffoldBackgroundColor,
-          child: FutureBuilder<List<Map<String, dynamic>>>(
-            future: ref.read(inventoryRepositoryProvider).getHistoryBatchLogs(batchId),
+          color: bgColor,
+          child: StreamBuilder<List<Map<String, dynamic>>>(
+            stream: ref.read(inventoryRepositoryProvider).watchHistoryBatchLogs(batchId),
             builder: (context, snapshot) {
               if (snapshot.connectionState == ConnectionState.waiting) return const Center(child: CircularProgressIndicator());
-              if (!snapshot.hasData || snapshot.data!.isEmpty) return const Center(child: Text("No items found"));
+              if (!snapshot.hasData || snapshot.data!.isEmpty) return Center(child: Text("No items found", style: TextStyle(color: isDark ? Colors.white : Colors.black)));
 
               final items = snapshot.data!;
               return ListView.separated(
                 controller: scrollController,
                 itemCount: items.length,
-                separatorBuilder: (_, __) => const Divider(),
+                separatorBuilder: (_, __) => const SizedBox(height: 10),
                 itemBuilder: (ctx, index) {
                   final item = items[index];
-                  return ListTile(
-                    title: Text("${item['productModel']} - ${item['productName']}", style: const TextStyle(fontWeight: FontWeight.bold)),
-                    subtitle: Text("Qty: ${item['quantityAdded']} | MRP: ${item['marketPrice']} | Comm: ${item['commissionPercent']}%"),
-                    trailing: IconButton(
-                      icon: const Icon(Icons.edit, color: Colors.blue),
-                      onPressed: () => _showCorrectionDialog(context, ref, item),
+                  return Container(
+                    decoration: BoxDecoration(
+                      color: cardColor,
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: isDark ? Colors.white10 : Colors.grey.shade300),
+                    ),
+                    child: ListTile(
+                      title: Text(
+                        "${item['productModel']} - ${item['productName']}",
+                        style: TextStyle(fontWeight: FontWeight.bold, color: isDark ? Colors.white : Colors.black),
+                      ),
+                      subtitle: Text(
+                        "Qty: ${item['quantityAdded']} | MRP: ${item['marketPrice']} | Comm: ${item['commissionPercent']}%",
+                        style: TextStyle(color: isDark ? Colors.white70 : Colors.grey[700]),
+                      ),
+                      trailing: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          IconButton(
+                            icon: const Icon(Icons.edit, color: Colors.blue),
+                            onPressed: () => _showCorrectionDialog(context, ref, item),
+                          ),
+                          IconButton(
+                            icon: const Icon(Icons.delete, color: Colors.red),
+                            onPressed: () => _confirmDelete(context, ref, item),
+                          ),
+                        ],
+                      ),
                     ),
                   );
                 },
@@ -222,36 +248,127 @@ class _BatchItemsSheet extends ConsumerWidget {
     );
   }
 
+  // --- DELETE FUNCTIONALITY ---
+  void _confirmDelete(BuildContext context, WidgetRef ref, Map<String, dynamic> item) {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: const Color(0xFF1E293B),
+        title: const Text("Delete Entry?", style: TextStyle(color: Colors.white)),
+        content: Text(
+          "Deleting this will remove ${item['quantityAdded']} units from stock.\nThis action fails if you have already sold these items.",
+          style: const TextStyle(color: Colors.white70),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text("Cancel", style: TextStyle(color: Colors.grey)),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.red, foregroundColor: Colors.white),
+            onPressed: () async {
+              Navigator.pop(ctx); // Close confirmation dialog
+              try {
+                await ref.read(inventoryRepositoryProvider).deleteStockEntry(
+                  logId: item['logId'],
+                  productId: item['productId'],
+                );
+
+                if (context.mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text("Entry deleted successfully")),
+                  );
+                }
+              } catch (e) {
+                debugPrint("Error deleting stock entry: $e");
+                // 👇 SHOW REJECTION POPUP
+                if (context.mounted) {
+                  showDialog(
+                    context: context,
+                    builder: (errCtx) => AlertDialog(
+                      backgroundColor: const Color(0xFF1E293B),
+                      icon: const Icon(Icons.error_outline, color: Colors.red, size: 40),
+                      title: const Text("Delete Failed", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                      content: Text(
+                        e.toString().replaceAll('Exception:', '').trim(),
+                        style: const TextStyle(color: Colors.white70),
+                        textAlign: TextAlign.center,
+                      ),
+                      actions: [
+                        TextButton(
+                            onPressed: () => Navigator.pop(errCtx),
+                            child: const Text("OK", style: TextStyle(color: Colors.blue))
+                        ),
+                      ],
+                    ),
+                  );
+                }
+              }
+            },
+            child: const Text("Confirm Delete"),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // --- EDIT FUNCTIONALITY ---
   void _showCorrectionDialog(BuildContext context, WidgetRef ref, Map<String, dynamic> item) {
     final nameCtrl = TextEditingController(text: item['productName']);
     final modelCtrl = TextEditingController(text: item['productModel']);
     final mrpCtrl = TextEditingController(text: item['marketPrice'].toString());
     final commCtrl = TextEditingController(text: item['commissionPercent'].toString());
+    final qtyCtrl = TextEditingController(text: item['quantityAdded'].toString());
+
+    InputDecoration getDecor(String label) {
+      return InputDecoration(
+        labelText: label,
+        labelStyle: const TextStyle(color: Colors.yellow),
+        enabledBorder: OutlineInputBorder(borderSide: const BorderSide(color: Colors.white24), borderRadius: BorderRadius.circular(8)),
+        focusedBorder: OutlineInputBorder(borderSide: const BorderSide(color: Colors.green), borderRadius: BorderRadius.circular(8)),
+        filled: true,
+        fillColor: Colors.black26,
+      );
+    }
+
+    final inputStyle = const TextStyle(color: Colors.white, fontWeight: FontWeight.bold);
 
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text("Correct Mistake"),
+        backgroundColor: const Color(0xFF1E293B),
+        title: const Text("Correct Mistake", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
         content: SingleChildScrollView(
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              TextFormField(controller: modelCtrl, decoration: const InputDecoration(labelText: "Model")),
+              TextFormField(controller: modelCtrl, style: inputStyle, decoration: getDecor("Model")),
               const SizedBox(height: 10),
-              TextFormField(controller: nameCtrl, decoration: const InputDecoration(labelText: "Name")),
+              TextFormField(controller: nameCtrl, style: inputStyle, decoration: getDecor("Name")),
               const SizedBox(height: 10),
-              TextFormField(controller: mrpCtrl, decoration: const InputDecoration(labelText: "MRP"), keyboardType: TextInputType.number),
+              TextFormField(controller: qtyCtrl, style: inputStyle, decoration: getDecor("Quantity"), keyboardType: TextInputType.number),
               const SizedBox(height: 10),
-              TextFormField(controller: commCtrl, decoration: const InputDecoration(labelText: "Comm %"), keyboardType: TextInputType.number),
+              Row(
+                children: [
+                  Expanded(child: TextFormField(controller: mrpCtrl, style: inputStyle, decoration: getDecor("MRP"), keyboardType: TextInputType.number)),
+                  const SizedBox(width: 10),
+                  Expanded(child: TextFormField(controller: commCtrl, style: inputStyle, decoration: getDecor("Comm %"), keyboardType: TextInputType.number)),
+                ],
+              ),
             ],
           ),
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text("Cancel")),
+          TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text("Cancel", style: TextStyle(color: Colors.redAccent))
+          ),
           ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.green, foregroundColor: Colors.white),
             onPressed: () async {
               final newMrp = double.tryParse(mrpCtrl.text) ?? 0;
               final newComm = double.tryParse(commCtrl.text) ?? 0;
+              final newQty = int.tryParse(qtyCtrl.text) ?? 0;
               final newBuy = newMrp - (newMrp * (newComm / 100));
 
               try {
@@ -263,6 +380,7 @@ class _BatchItemsSheet extends ConsumerWidget {
                   newMrp: newMrp,
                   newComm: newComm,
                   newBuyingPrice: newBuy,
+                  newQuantity: newQty,
                 );
                 if (context.mounted) {
                   Navigator.pop(ctx);
@@ -270,9 +388,12 @@ class _BatchItemsSheet extends ConsumerWidget {
                   ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Entry Corrected! Re-open to see changes.")));
                 }
               } catch (e) {
-                // 👇 ADDED: Print Error to Console
                 debugPrint("Error correcting stock entry: $e");
-                if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Error: $e")));
+                if (context.mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(content: Text("Error: ${e.toString().replaceAll('Exception:', '')}"), backgroundColor: Colors.red)
+                  );
+                }
               }
             },
             child: const Text("Save Correction"),

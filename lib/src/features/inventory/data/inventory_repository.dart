@@ -3,10 +3,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../authentication/data/auth_repository.dart';
 import '../domain/product_model.dart';
 
-// 1. Repository Provider
 final inventoryRepositoryProvider = Provider((ref) => InventoryRepository(FirebaseFirestore.instance, ref));
 
-// 2. Stream Providers
 final inventoryStreamProvider = StreamProvider<List<Product>>((ref) {
   final repository = ref.watch(inventoryRepositoryProvider);
   return repository.watchInventory();
@@ -115,8 +113,8 @@ class InventoryRepository {
     }).toList());
   }
 
-  // --- 3. GET BATCH ITEMS (With Log ID) ---
-  Future<List<Map<String, dynamic>>> getHistoryBatchLogs(String batchId) async {
+  // --- 3. GET BATCH ITEMS ---
+  Future<List<Product>> getHistoryBatchItems(String batchId) async {
     final snapshot = await _firestore
         .collection('inventory_logs')
         .where('batchId', isEqualTo: batchId)
@@ -124,14 +122,6 @@ class InventoryRepository {
 
     return snapshot.docs.map((doc) {
       final data = doc.data();
-      data['logId'] = doc.id;
-      return data;
-    }).toList();
-  }
-
-  Future<List<Product>> getHistoryBatchItems(String batchId) async {
-    final logs = await getHistoryBatchLogs(batchId);
-    return logs.map((data) {
       return Product(
         id: data['productId'] ?? '',
         name: data['productName'] ?? '',
@@ -142,10 +132,24 @@ class InventoryRepository {
         marketPrice: (data['marketPrice'] ?? 0).toDouble(),
         commissionPercent: (data['commissionPercent'] ?? 0).toDouble(),
         buyingPrice: (data['buyingPrice'] ?? 0).toDouble(),
-        currentStock: (data['quantityAdded'] ?? 0).toInt(),
+        currentStock: (data['quantityAdded'] as num? ?? 0).toInt(),
         lastUpdated: (data['timestamp'] as Timestamp?)?.toDate(),
       );
     }).toList();
+  }
+
+  Stream<List<Map<String, dynamic>>> watchHistoryBatchLogs(String batchId) {
+    return _firestore
+        .collection('inventory_logs')
+        .where('batchId', isEqualTo: batchId)
+        .snapshots()
+        .map((snapshot) {
+      return snapshot.docs.map((doc) {
+        final data = doc.data();
+        data['logId'] = doc.id;
+        return data;
+      }).toList();
+    });
   }
 
   // --- 4. CORRECT MISTAKE (ACID Transaction) ---
@@ -157,38 +161,104 @@ class InventoryRepository {
     required double newMrp,
     required double newComm,
     required double newBuyingPrice,
+    required int newQuantity,
   }) async {
     await _firestore.runTransaction((transaction) async {
       final logRef = _firestore.collection('inventory_logs').doc(logId);
       final productRef = _firestore.collection('products').doc(productId);
 
-      // 👇 FIX: PERFORM ALL READS FIRST
+      // 1. READS
+      final logSnap = await transaction.get(logRef);
+      if (!logSnap.exists) throw Exception("Log entry not found");
+      final oldQuantity = (logSnap.data()?['quantityAdded'] as num? ?? 0).toInt();
+
       final productSnap = await transaction.get(productRef);
 
-      // 👇 THEN PERFORM WRITES
-      // 1. Update the Historical Log
+      // 2. LOGIC
+      final int quantityDiff = newQuantity - oldQuantity;
+
+      // 3. WRITES
       transaction.update(logRef, {
         'productName': newName,
         'productModel': newModel,
         'marketPrice': newMrp,
         'commissionPercent': newComm,
         'buyingPrice': newBuyingPrice,
+        'quantityAdded': newQuantity,
       });
 
-      // 2. Update the Master Product (if it exists)
       if (productSnap.exists) {
+        final currentStock = (productSnap.data()?['currentStock'] as num? ?? 0).toInt();
+        // Check if stock goes negative
+        if (quantityDiff < 0 && (currentStock + quantityDiff) < 0) {
+          throw Exception("Cannot reduce quantity: Items already sold (Stock: $currentStock)");
+        }
+
         transaction.update(productRef, {
           'name': newName,
           'model': newModel,
           'marketPrice': newMrp,
           'commissionPercent': newComm,
           'buyingPrice': newBuyingPrice,
+          'currentStock': FieldValue.increment(quantityDiff),
         });
       }
     });
   }
 
-  // ... (Update/Delete/WatchInventory) ...
+  // --- 5. DELETE ENTRY (ACID Transaction) ---
+  Future<void> deleteStockEntry({
+    required String logId,
+    required String productId,
+  }) async {
+    await _firestore.runTransaction((transaction) async {
+      final logRef = _firestore.collection('inventory_logs').doc(logId);
+      final productRef = _firestore.collection('products').doc(productId);
+
+      // 1. READS
+      final logSnap = await transaction.get(logRef);
+      if (!logSnap.exists) return; // Already deleted
+
+      final data = logSnap.data()!;
+      final quantityToRemove = (data['quantityAdded'] as num? ?? 0).toInt();
+      final batchId = data['batchId'] as String;
+
+      final productSnap = await transaction.get(productRef);
+      final batchRef = _firestore.collection('inventory_batches').doc(batchId);
+      final batchSnap = await transaction.get(batchRef);
+
+      // 2. VALIDATION (Stock Check)
+      if (productSnap.exists) {
+        final currentStock = (productSnap.data()?['currentStock'] as num? ?? 0).toInt();
+
+        // 👇 The Check
+        if (currentStock < quantityToRemove) {
+          // 👇 The Exact Custom Message
+          throw Exception("You don't have the available stock right now that why this deletation request is rejected");
+        }
+
+        // 3. WRITES
+        transaction.update(productRef, {
+          'currentStock': FieldValue.increment(-quantityToRemove),
+        });
+      }
+
+      // Cleanup Batch
+      if (batchSnap.exists) {
+        final currentBatchCount = (batchSnap.data()?['itemCount'] as num? ?? 0).toInt();
+        if (currentBatchCount <= 1) {
+          transaction.delete(batchRef); // Deletes batch if it was the last item
+        } else {
+          transaction.update(batchRef, {
+            'itemCount': FieldValue.increment(-1),
+          });
+        }
+      }
+
+      transaction.delete(logRef);
+    });
+  }
+
   Future<void> updateProduct(Product product) async {
     final batch = _firestore.batch();
     final docRef = _firestore.collection('products').doc(product.id);
