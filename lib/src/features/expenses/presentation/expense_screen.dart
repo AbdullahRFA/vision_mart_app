@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 import '../data/expense_repository.dart';
 import '../domain/expense_model.dart';
+import 'expense_pdf_generator.dart'; // 👈 Import Generator
 
 class ExpenseScreen extends ConsumerStatefulWidget {
   const ExpenseScreen({super.key});
@@ -13,12 +14,14 @@ class ExpenseScreen extends ConsumerStatefulWidget {
 
 class _ExpenseScreenState extends ConsumerState<ExpenseScreen> {
   String _selectedFilter = 'This Month'; // Default view
+  DateTime? _customDate; // 👈 Store selected custom date
 
   final List<String> _filters = [
     'Today',
     'This Week',
     'This Month',
     'This Year',
+    'Custom', // 👈 Added Custom Option
     'All Time'
   ];
 
@@ -35,19 +38,49 @@ class _ExpenseScreenState extends ConsumerState<ExpenseScreen> {
         case 'Today':
           return checkDate == today;
         case 'This Week':
-        // Assuming week starts on Monday. Adjust if needed (e.g. Saturday)
-        // DateTime.weekday: Mon=1, ... Sun=7
+        // Assuming week starts on Monday
           final startOfWeek = today.subtract(Duration(days: today.weekday - 1));
           return date.isAfter(startOfWeek.subtract(const Duration(seconds: 1)));
         case 'This Month':
           return date.year == now.year && date.month == now.month;
         case 'This Year':
           return date.year == now.year;
+        case 'Custom': // 👈 Handle Custom Date
+          if (_customDate == null) return false;
+          final target = DateTime(_customDate!.year, _customDate!.month, _customDate!.day);
+          return checkDate == target;
         case 'All Time':
         default:
           return true;
       }
     }).toList();
+  }
+
+  // 👇 Print Action
+  Future<void> _printExpenses() async {
+    final expenseAsync = ref.read(expenseStreamProvider);
+
+    expenseAsync.whenData((allExpenses) {
+      final filtered = _applyFilter(allExpenses);
+      if (filtered.isEmpty) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text("No expenses to print for this period.")),
+        );
+        return;
+      }
+
+      double total = filtered.fold(0, (sum, e) => sum + e.amount);
+      String periodLabel = _selectedFilter;
+      if (_selectedFilter == 'Custom' && _customDate != null) {
+        periodLabel = DateFormat('dd MMM yyyy').format(_customDate!);
+      }
+
+      ExpensePdfGenerator.generateExpenseReport(
+        expenses: filtered,
+        periodName: periodLabel,
+        totalAmount: total,
+      );
+    });
   }
 
   @override
@@ -56,7 +89,17 @@ class _ExpenseScreenState extends ConsumerState<ExpenseScreen> {
     final isDark = Theme.of(context).brightness == Brightness.dark;
 
     return Scaffold(
-      appBar: AppBar(title: const Text("Business Expenses")),
+      appBar: AppBar(
+        title: const Text("Business Expenses"),
+        actions: [
+          // 👇 Print Button
+          IconButton(
+            icon: const Icon(Icons.print),
+            tooltip: "Print Report",
+            onPressed: _printExpenses,
+          ),
+        ],
+      ),
       floatingActionButton: FloatingActionButton.extended(
         onPressed: () => _showAddExpenseDialog(context, ref),
         label: const Text("Add Expense"),
@@ -73,10 +116,17 @@ class _ExpenseScreenState extends ConsumerState<ExpenseScreen> {
             child: Row(
               children: _filters.map((filter) {
                 final isSelected = _selectedFilter == filter;
+
+                // Dynamic label for Custom
+                String label = filter;
+                if (filter == 'Custom' && _customDate != null) {
+                  label = DateFormat('dd MMM').format(_customDate!);
+                }
+
                 return Padding(
                   padding: const EdgeInsets.only(right: 8.0),
                   child: FilterChip(
-                    label: Text(filter),
+                    label: Text(label),
                     selected: isSelected,
                     showCheckmark: false,
                     selectedColor: Colors.red.withOpacity(0.2),
@@ -89,8 +139,23 @@ class _ExpenseScreenState extends ConsumerState<ExpenseScreen> {
                     side: BorderSide(
                         color: isSelected ? Colors.redAccent : Colors.transparent
                     ),
-                    onSelected: (bool selected) {
-                      if (selected) setState(() => _selectedFilter = filter);
+                    onSelected: (bool selected) async {
+                      if (filter == 'Custom') {
+                        final picked = await showDatePicker(
+                          context: context,
+                          initialDate: DateTime.now(),
+                          firstDate: DateTime(2020),
+                          lastDate: DateTime(2030),
+                        );
+                        if (picked != null) {
+                          setState(() {
+                            _customDate = picked;
+                            _selectedFilter = filter;
+                          });
+                        }
+                      } else {
+                        if (selected) setState(() => _selectedFilter = filter);
+                      }
                     },
                   ),
                 );
@@ -132,8 +197,12 @@ class _ExpenseScreenState extends ConsumerState<ExpenseScreen> {
                       ),
                       child: Column(
                         children: [
-                          Text("Total Expense ($_selectedFilter)",
-                              style: const TextStyle(color: Colors.white70, fontSize: 14)),
+                          Text(
+                              _selectedFilter == 'Custom' && _customDate != null
+                                  ? "Total Expense (${DateFormat('dd MMM').format(_customDate!)})"
+                                  : "Total Expense ($_selectedFilter)",
+                              style: const TextStyle(color: Colors.white70, fontSize: 14)
+                          ),
                           const SizedBox(height: 5),
                           Text(
                             "৳${totalAmount.toStringAsFixed(0)}",
@@ -155,7 +224,7 @@ class _ExpenseScreenState extends ConsumerState<ExpenseScreen> {
                           children: [
                             Icon(Icons.money_off_rounded, size: 60, color: Colors.grey.withOpacity(0.3)),
                             const SizedBox(height: 10),
-                            Text("No expenses for $_selectedFilter", style: TextStyle(color: Colors.grey[600])),
+                            Text("No expenses found", style: TextStyle(color: Colors.grey[600])),
                           ],
                         ),
                       )
