@@ -41,19 +41,33 @@ class _SellProductScreenState extends ConsumerState<SellProductScreen> {
   Product? _selectedProduct; // Used for Single Selection Form
   final _qtyController = TextEditingController(text: '1');
 
-  // 3-Way Pricing Controllers
+  // 3-Way Pricing Controllers (Item Level)
   final _discountPercentController = TextEditingController(text: '0');
   final _discountAmountController = TextEditingController(text: '0');
   final _finalPriceController = TextEditingController(text: '0');
 
-  // Focus Nodes
+  // Focus Nodes (Item Level)
   final _discPercentFocus = FocusNode();
   final _discAmountFocus = FocusNode();
   final _finalPriceFocus = FocusNode();
 
+  // --- NEW: Global Discount / Grand Total Controllers ---
+  final _globalDiscPercentController = TextEditingController(text: '0');
+  final _globalDiscAmtController = TextEditingController(text: '0');
+  final _globalGrandTotalController = TextEditingController(text: '0');
+
+  // Focus Nodes (Global)
+  final _globalDiscPercentFocus = FocusNode();
+  final _globalDiscAmtFocus = FocusNode();
+  final _globalGrandTotalFocus = FocusNode();
+
   String _paymentStatus = 'Cash';
   DateTime _selectedDate = DateTime.now();
   SalesDiscountType _discountType = SalesDiscountType.percentage;
+
+  // Track Global Discount Type (default %)
+  SalesDiscountType _globalDiscountType = SalesDiscountType.percentage;
+
   bool _isLoading = false;
 
   final List<CartItem> _cartItems = [];
@@ -71,11 +85,16 @@ class _SellProductScreenState extends ConsumerState<SellProductScreen> {
       _loadExistingData();
     }
 
-    // Attach Listeners
+    // Attach Listeners (Item Level)
     _qtyController.addListener(_onQtyChanged);
     _discountPercentController.addListener(_onPercentChanged);
     _discountAmountController.addListener(_onAmountChanged);
     _finalPriceController.addListener(_onFinalPriceChanged);
+
+    // Attach Listeners (Global Level)
+    _globalDiscPercentController.addListener(_onGlobalPercentChanged);
+    _globalDiscAmtController.addListener(_onGlobalAmountChanged);
+    _globalGrandTotalController.addListener(_onGlobalTotalChanged);
   }
 
   void _loadExistingData() async {
@@ -122,11 +141,13 @@ class _SellProductScreenState extends ConsumerState<SellProductScreen> {
             finalPrice: (itemData['totalAmount'] ?? 0).toDouble(),
           ));
         }
+        // Recalculate totals after loading
+        _recalculateGlobalValues();
       });
     }
   }
 
-  // --- PRICING LOGIC ---
+  // --- ITEM PRICING LOGIC ---
   void _resetPricingFields() {
     if (_selectedProduct == null) return;
     double mrp = _selectedProduct!.marketPrice;
@@ -197,7 +218,60 @@ class _SellProductScreenState extends ConsumerState<SellProductScreen> {
     _discountPercentController.text = percent.toStringAsFixed(2);
   }
 
-  // --- SHOW PRODUCT SELECTION DIALOG (NEW FEATURE) ---
+  // --- NEW: GLOBAL PRICING LOGIC ---
+
+  double get _cartSubTotal => _cartItems.fold(0, (sum, item) => sum + item.finalPrice);
+
+  void _recalculateGlobalValues() {
+    // Default to preserving the Percentage logic when items change
+    _onGlobalPercentChanged(force: true);
+  }
+
+  void _onGlobalPercentChanged({bool force = false}) {
+    if (!_globalDiscPercentFocus.hasFocus && !force) return;
+
+    double subTotal = _cartSubTotal;
+    double percent = double.tryParse(_globalDiscPercentController.text) ?? 0;
+    double discountAmt = subTotal * (percent / 100);
+    double grandTotal = subTotal - discountAmt;
+
+    if (_globalDiscAmtController.text != discountAmt.toStringAsFixed(0)) {
+      _globalDiscAmtController.text = discountAmt.toStringAsFixed(0);
+    }
+    if (_globalGrandTotalController.text != grandTotal.toStringAsFixed(0)) {
+      _globalGrandTotalController.text = grandTotal.toStringAsFixed(0);
+    }
+  }
+
+  void _onGlobalAmountChanged() {
+    if (!_globalDiscAmtFocus.hasFocus) return;
+
+    double subTotal = _cartSubTotal;
+    if (subTotal == 0) return;
+
+    double discountAmt = double.tryParse(_globalDiscAmtController.text) ?? 0;
+    double percent = (discountAmt / subTotal) * 100;
+    double grandTotal = subTotal - discountAmt;
+
+    _globalDiscPercentController.text = percent.toStringAsFixed(2);
+    _globalGrandTotalController.text = grandTotal.toStringAsFixed(0);
+  }
+
+  void _onGlobalTotalChanged() {
+    if (!_globalGrandTotalFocus.hasFocus) return;
+
+    double subTotal = _cartSubTotal;
+    if (subTotal == 0) return;
+
+    double grandTotal = double.tryParse(_globalGrandTotalController.text) ?? 0;
+    double discountAmt = subTotal - grandTotal;
+    double percent = (discountAmt / subTotal) * 100;
+
+    _globalDiscAmtController.text = discountAmt.toStringAsFixed(0);
+    _globalDiscPercentController.text = percent.toStringAsFixed(2);
+  }
+
+  // --- SHOW PRODUCT SELECTION DIALOG ---
   void _openProductSelector(List<Product> allProducts) async {
     final List<Product>? results = await showModalBottomSheet(
       context: context,
@@ -208,13 +282,11 @@ class _SellProductScreenState extends ConsumerState<SellProductScreen> {
 
     if (results != null && results.isNotEmpty) {
       if (results.length == 1) {
-        // Single Selection: Populate form for manual adjustment
         setState(() {
           _selectedProduct = results.first;
           _resetPricingFields();
         });
       } else {
-        // Multi Selection: Add directly to cart with defaults
         setState(() {
           for (var p in results) {
             _cartItems.add(CartItem(
@@ -224,9 +296,9 @@ class _SellProductScreenState extends ConsumerState<SellProductScreen> {
               finalPrice: p.marketPrice,
             ));
           }
-          // Clear current selection form if any
           _selectedProduct = null;
           _resetPricingFields();
+          _recalculateGlobalValues(); // Update total
         });
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text("${results.length} items added to cart")),
@@ -264,6 +336,7 @@ class _SellProductScreenState extends ConsumerState<SellProductScreen> {
       _finalPriceController.text = '0';
       _discountPercentController.text = '0';
       _discountAmountController.text = '0';
+      _recalculateGlobalValues(); // Update totals
     });
   }
 
@@ -279,6 +352,7 @@ class _SellProductScreenState extends ConsumerState<SellProductScreen> {
       double distAmt = totalMrp - item.finalPrice;
       _discountAmountController.text = distAmt.toStringAsFixed(0);
       _discountType = SalesDiscountType.percentage;
+      _recalculateGlobalValues(); // Update totals
     });
   }
 
@@ -289,19 +363,48 @@ class _SellProductScreenState extends ConsumerState<SellProductScreen> {
       return;
     }
 
-    double totalCartAmount = 0;
-    for (var item in _cartItems) totalCartAmount += item.finalPrice;
+    // 1. Calculate Actual Final Grand Total (User adjusted)
+    final double finalGrandTotal = double.tryParse(_globalGrandTotalController.text) ?? _cartSubTotal;
+    final double subTotal = _cartSubTotal;
 
+    // 2. Prepare Final Items List with Adjusted Prices (Prorated)
+    List<CartItem> finalItemsToSell = [];
+
+    if (subTotal == 0) {
+      finalItemsToSell = List.from(_cartItems);
+    } else {
+      // Calculate ratio to distribute the global discount/override
+      final double adjustmentRatio = finalGrandTotal / subTotal;
+
+      for (var item in _cartItems) {
+        final double adjustedPrice = item.finalPrice * adjustmentRatio;
+
+        // Recalculate discount percent for the record based on original MRP vs New Adjusted Price
+        final double totalMrp = item.product.marketPrice * item.quantity;
+        final double newDiscountPercent = totalMrp > 0
+            ? ((totalMrp - adjustedPrice) / totalMrp) * 100
+            : 0;
+
+        finalItemsToSell.add(CartItem(
+          product: item.product,
+          quantity: item.quantity,
+          discountPercent: newDiscountPercent, // Updated discount
+          finalPrice: adjustedPrice, // Updated price
+        ));
+      }
+    }
+
+    // 3. Payment logic uses finalGrandTotal
     double paidAmount = 0;
     if (_paymentStatus == 'Cash') {
-      paidAmount = totalCartAmount;
+      paidAmount = finalGrandTotal;
     } else if (_paymentStatus == 'Due') {
       paidAmount = 0;
     } else if (_paymentStatus == 'Partial') {
       paidAmount = double.tryParse(_paidAmountController.text) ?? 0;
     }
 
-    double dueAmount = totalCartAmount - paidAmount;
+    double dueAmount = finalGrandTotal - paidAmount;
     if (dueAmount < 0) dueAmount = 0;
 
     setState(() => _isLoading = true);
@@ -311,8 +414,11 @@ class _SellProductScreenState extends ConsumerState<SellProductScreen> {
         await ref.read(salesRepositoryProvider).deleteInvoiceAndRestoreStock(oldInvoiceId);
       }
 
+      // Pass the adjusted items (with prorated prices) to repository
+      // The repository calculates Profit = FinalPrice - BuyingPrice.
+      // Since FinalPrice is now adjusted for global discount, Profit will be accurate.
       await ref.read(salesRepositoryProvider).sellBatchProducts(
-        items: _cartItems,
+        items: finalItemsToSell,
         customerName: _customerNameController.text.trim(),
         customerPhone: _customerPhoneController.text.trim(),
         customerAddress: _customerAddressController.text.trim(),
@@ -321,7 +427,7 @@ class _SellProductScreenState extends ConsumerState<SellProductScreen> {
         saleDate: _selectedDate,
       );
 
-      final soldItems = List<CartItem>.from(_cartItems);
+      final soldItems = List<CartItem>.from(finalItemsToSell);
       final cName = _customerNameController.text;
       final cPhone = _customerPhoneController.text;
       final cAddress = _customerAddressController.text;
@@ -346,6 +452,7 @@ class _SellProductScreenState extends ConsumerState<SellProductScreen> {
             _paymentStatus = 'Cash';
             _selectedProduct = null;
             _resetPricingFields();
+            _recalculateGlobalValues();
           });
           _showSuccessDialog(soldItems, cName, cPhone, cAddress, payStatus, sDate, pAmount, dAmount);
         }
@@ -407,8 +514,8 @@ class _SellProductScreenState extends ConsumerState<SellProductScreen> {
     final inputTextStyle = TextStyle(color: isDark ? Colors.white : Colors.black87);
     final isEditing = widget.existingInvoice != null;
 
-    double cartTotal = 0;
-    for (var i in _cartItems) cartTotal += i.finalPrice;
+    // Use current subtotal state
+    double cartSubTotal = _cartSubTotal;
 
     return Scaffold(
       appBar: AppBar(title: Text(isEditing ? "Edit Invoice (Correction)" : "New Sale (POS)")),
@@ -483,7 +590,6 @@ class _SellProductScreenState extends ConsumerState<SellProductScreen> {
                     Text("Add Item to Cart", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: isDark ? Colors.white : Colors.black87)),
                     const SizedBox(height: 12),
 
-                    // 👇 REPLACED DROPDOWN WITH CUSTOM SELECTOR
                     inventoryAsync.when(
                       data: (products) {
                         return InkWell(
@@ -566,7 +672,7 @@ class _SellProductScreenState extends ConsumerState<SellProductScreen> {
                             focusNode: _finalPriceFocus,
                             keyboardType: TextInputType.number,
                             style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.green),
-                            decoration: _inputDecor("Sold Price"),
+                            decoration: _inputDecor("Item Price"),
                           ),
                         ),
                       ],
@@ -631,7 +737,10 @@ class _SellProductScreenState extends ConsumerState<SellProductScreen> {
                           ),
                           IconButton(
                             icon: const Icon(Icons.delete_outline, color: Colors.redAccent, size: 20),
-                            onPressed: () => setState(() => _cartItems.removeAt(index)),
+                            onPressed: () => setState(() {
+                              _cartItems.removeAt(index);
+                              _recalculateGlobalValues();
+                            }),
                             tooltip: "Remove Item",
                           ),
                         ],
@@ -639,6 +748,123 @@ class _SellProductScreenState extends ConsumerState<SellProductScreen> {
                     ),
                   );
                 },
+              ),
+
+              const SizedBox(height: 20),
+
+              // ----------------------------------------------------
+              // 👇 NEW: TOTAL SUMMARY & GLOBAL ADJUSTMENT SECTION
+              // ----------------------------------------------------
+              Container(
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: isDark ? const Color(0xFF0F172A) : Colors.black,
+                  borderRadius: BorderRadius.circular(16),
+                  boxShadow: [
+                    BoxShadow(color: isDark ? Colors.black45 : Colors.black26, blurRadius: 10, offset: const Offset(0, 4))
+                  ],
+                ),
+                child: Column(
+                  children: [
+                    // SUBTOTAL
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        const Text("Subtotal:", style: TextStyle(color: Colors.white70, fontSize: 14)),
+                        Text(
+                          "৳${cartSubTotal.toStringAsFixed(0)}",
+                          style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold),
+                        ),
+                      ],
+                    ),
+                    const Divider(color: Colors.white24, height: 20),
+
+                    // GLOBAL DISCOUNT CONTROLS
+                    Row(
+                      children: [
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              const Text("Global Disc %", style: TextStyle(color: Colors.white54, fontSize: 10)),
+                              const SizedBox(height: 4),
+                              SizedBox(
+                                height: 40,
+                                child: TextFormField(
+                                  controller: _globalDiscPercentController,
+                                  focusNode: _globalDiscPercentFocus,
+                                  keyboardType: TextInputType.number,
+                                  style: const TextStyle(color: Colors.white, fontSize: 14),
+                                  decoration: InputDecoration(
+                                    filled: true,
+                                    fillColor: Colors.white12,
+                                    contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 0),
+                                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: BorderSide.none),
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              const Text("Flat Discount", style: TextStyle(color: Colors.white54, fontSize: 10)),
+                              const SizedBox(height: 4),
+                              SizedBox(
+                                height: 40,
+                                child: TextFormField(
+                                  controller: _globalDiscAmtController,
+                                  focusNode: _globalDiscAmtFocus,
+                                  keyboardType: TextInputType.number,
+                                  style: const TextStyle(color: Colors.white, fontSize: 14),
+                                  decoration: InputDecoration(
+                                    filled: true,
+                                    fillColor: Colors.white12,
+                                    contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 0),
+                                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: BorderSide.none),
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 12),
+
+                    // FINAL GRAND TOTAL
+                    Row(
+                      children: [
+                        Expanded(
+                          child: Align(
+                            alignment: Alignment.centerRight,
+                            child: const Text("Net Payable:", style: TextStyle(color: Colors.greenAccent, fontSize: 16, fontWeight: FontWeight.bold)),
+                          ),
+                        ),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: TextFormField(
+                            controller: _globalGrandTotalController,
+                            focusNode: _globalGrandTotalFocus,
+                            keyboardType: TextInputType.number,
+                            style: const TextStyle(color: Colors.greenAccent, fontSize: 22, fontWeight: FontWeight.bold),
+                            textAlign: TextAlign.end,
+                            decoration: const InputDecoration(
+                              isDense: true,
+                              border: InputBorder.none,
+                              contentPadding: EdgeInsets.zero,
+                              prefixText: "৳",
+                              prefixStyle: TextStyle(color: Colors.greenAccent, fontSize: 22),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
               ),
 
               const SizedBox(height: 20),
@@ -668,28 +894,6 @@ class _SellProductScreenState extends ConsumerState<SellProductScreen> {
 
               const SizedBox(height: 20),
 
-              Container(
-                padding: const EdgeInsets.all(16),
-                decoration: BoxDecoration(
-                  color: isDark ? const Color(0xFF0F172A) : Colors.black,
-                  borderRadius: BorderRadius.circular(16),
-                  boxShadow: [
-                    BoxShadow(color: isDark ? Colors.black45 : Colors.black26, blurRadius: 10, offset: const Offset(0, 4))
-                  ],
-                ),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    const Text("Grand Total:", style: TextStyle(color: Colors.white70, fontSize: 16)),
-                    Text(
-                      "৳${cartTotal.toStringAsFixed(0)}",
-                      style: const TextStyle(color: Colors.greenAccent, fontSize: 24, fontWeight: FontWeight.bold),
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(height: 16),
-
               SizedBox(
                 width: double.infinity,
                 height: 50,
@@ -698,7 +902,7 @@ class _SellProductScreenState extends ConsumerState<SellProductScreen> {
                   icon: Icon(isEditing ? Icons.update : Icons.check_circle),
                   label: _isLoading
                       ? const CircularProgressIndicator(color: Colors.white)
-                      : Text(isEditing ? "UPDATE INVOICE (CORRECT MISTAKE)" : "CONFIRM BATCH SALE"),
+                      : Text(isEditing ? "UPDATE INVOICE" : "CONFIRM SALE"),
                   style: ElevatedButton.styleFrom(
                     backgroundColor: isEditing ? Colors.orange : Colors.green,
                     foregroundColor: Colors.white,
