@@ -356,6 +356,71 @@ class _SellProductScreenState extends ConsumerState<SellProductScreen> {
     });
   }
 
+  // --- PREVIEW LOGIC (NEW) ---
+  void _previewInvoice() {
+    if (_cartItems.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Cart is empty")));
+      return;
+    }
+    // Basic validation for preview
+    if (_customerNameController.text.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Please enter Customer Name to preview")));
+      return;
+    }
+
+    // 1. Calculate final values (mirroring sale logic)
+    final double finalGrandTotal = double.tryParse(_globalGrandTotalController.text) ?? _cartSubTotal;
+    final double subTotal = _cartSubTotal;
+
+    List<CartItem> previewItems = [];
+
+    if (subTotal == 0) {
+      previewItems = List.from(_cartItems);
+    } else {
+      final double adjustmentRatio = finalGrandTotal / subTotal;
+      for (var item in _cartItems) {
+        final double adjustedPrice = item.finalPrice * adjustmentRatio;
+        final double totalMrp = item.product.marketPrice * item.quantity;
+
+        // Calculate effective discount
+        final double newDiscountPercent = totalMrp > 0
+            ? ((totalMrp - adjustedPrice) / totalMrp) * 100
+            : 0;
+
+        previewItems.add(CartItem(
+          product: item.product,
+          quantity: item.quantity,
+          discountPercent: newDiscountPercent,
+          finalPrice: adjustedPrice,
+        ));
+      }
+    }
+
+    double paidAmount = 0;
+    if (_paymentStatus == 'Cash') {
+      paidAmount = finalGrandTotal;
+    } else if (_paymentStatus == 'Due') {
+      paidAmount = 0;
+    } else if (_paymentStatus == 'Partial') {
+      paidAmount = double.tryParse(_paidAmountController.text) ?? 0;
+    }
+
+    double dueAmount = finalGrandTotal - paidAmount;
+    if (dueAmount < 0) dueAmount = 0;
+
+    // 2. Generate PDF (without saving to DB)
+    PdfGenerator.generateBatchInvoice(
+      items: previewItems,
+      customerName: _customerNameController.text.trim(),
+      customerPhone: _customerPhoneController.text.trim(),
+      customerAddress: _customerAddressController.text.trim(),
+      paymentStatus: _paymentStatus,
+      paidAmount: paidAmount,
+      dueAmount: dueAmount,
+      saleDate: _selectedDate,
+    );
+  }
+
   Future<void> _processBatchSale() async {
     if (_cartItems.isEmpty) return;
     if (_customerNameController.text.isEmpty) {
@@ -894,21 +959,44 @@ class _SellProductScreenState extends ConsumerState<SellProductScreen> {
 
               const SizedBox(height: 20),
 
-              SizedBox(
-                width: double.infinity,
-                height: 50,
-                child: ElevatedButton.icon(
-                  onPressed: (_isLoading || _cartItems.isEmpty) ? null : _processBatchSale,
-                  icon: Icon(isEditing ? Icons.update : Icons.check_circle),
-                  label: _isLoading
-                      ? const CircularProgressIndicator(color: Colors.white)
-                      : Text(isEditing ? "UPDATE INVOICE" : "CONFIRM SALE"),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: isEditing ? Colors.orange : Colors.green,
-                    foregroundColor: Colors.white,
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              Row(
+                children: [
+                  Expanded(
+                    flex: 1,
+                    child: SizedBox(
+                      height: 50,
+                      child: OutlinedButton.icon(
+                        onPressed: _cartItems.isEmpty ? null : _previewInvoice,
+                        icon: const Icon(Icons.visibility),
+                        label: const Text("PREVIEW"),
+                        style: OutlinedButton.styleFrom(
+                          foregroundColor: isDark ? Colors.white : Theme.of(context).primaryColor,
+                          side: BorderSide(color: isDark ? Colors.white54 : Theme.of(context).primaryColor),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                        ),
+                      ),
+                    ),
                   ),
-                ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    flex: 2,
+                    child: SizedBox(
+                      height: 50,
+                      child: ElevatedButton.icon(
+                        onPressed: (_isLoading || _cartItems.isEmpty) ? null : _processBatchSale,
+                        icon: Icon(isEditing ? Icons.update : Icons.check_circle),
+                        label: _isLoading
+                            ? const CircularProgressIndicator(color: Colors.white)
+                            : Text(isEditing ? "UPDATE SALE" : "CONFIRM SALE"),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: isEditing ? Colors.orange : Colors.green,
+                          foregroundColor: Colors.white,
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
               ),
               const SizedBox(height: 40),
             ],
