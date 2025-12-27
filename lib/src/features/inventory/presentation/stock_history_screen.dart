@@ -248,7 +248,7 @@ class _BatchItemsSheet extends ConsumerWidget {
     );
   }
 
-  // --- DELETE FUNCTIONALITY ---
+  // ... _confirmDelete remains the same ...
   void _confirmDelete(BuildContext context, WidgetRef ref, Map<String, dynamic> item) {
     showDialog(
       context: context,
@@ -267,7 +267,7 @@ class _BatchItemsSheet extends ConsumerWidget {
           ElevatedButton(
             style: ElevatedButton.styleFrom(backgroundColor: Colors.red, foregroundColor: Colors.white),
             onPressed: () async {
-              Navigator.pop(ctx); // Close confirmation dialog
+              Navigator.pop(ctx);
               try {
                 await ref.read(inventoryRepositoryProvider).deleteStockEntry(
                   logId: item['logId'],
@@ -281,7 +281,6 @@ class _BatchItemsSheet extends ConsumerWidget {
                 }
               } catch (e) {
                 debugPrint("Error deleting stock entry: $e");
-                // 👇 SHOW REJECTION POPUP
                 if (context.mounted) {
                   showDialog(
                     context: context,
@@ -312,7 +311,7 @@ class _BatchItemsSheet extends ConsumerWidget {
     );
   }
 
-  // --- EDIT FUNCTIONALITY ---
+  // --- MODIFIED EDIT FUNCTIONALITY ---
   void _showCorrectionDialog(BuildContext context, WidgetRef ref, Map<String, dynamic> item) {
     final nameCtrl = TextEditingController(text: item['productName']);
     final modelCtrl = TextEditingController(text: item['productModel']);
@@ -342,6 +341,8 @@ class _BatchItemsSheet extends ConsumerWidget {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
+              Text("Note: Changing Model/MRP/Comm will move these items to a separate product entry.", style: TextStyle(color: Colors.grey[400], fontSize: 11)),
+              const SizedBox(height: 12),
               TextFormField(controller: modelCtrl, style: inputStyle, decoration: getDecor("Model")),
               const SizedBox(height: 10),
               TextFormField(controller: nameCtrl, style: inputStyle, decoration: getDecor("Name")),
@@ -375,6 +376,7 @@ class _BatchItemsSheet extends ConsumerWidget {
                 await ref.read(inventoryRepositoryProvider).correctStockEntry(
                   logId: item['logId'],
                   productId: item['productId'],
+                  category: item['productCategory'] ?? '', // 👈 Passed Category
                   newName: nameCtrl.text.trim(),
                   newModel: modelCtrl.text.trim(),
                   newMrp: newMrp,

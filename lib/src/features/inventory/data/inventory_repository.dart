@@ -152,10 +152,11 @@ class InventoryRepository {
     });
   }
 
-  // --- 4. CORRECT MISTAKE (ACID Transaction) ---
+  // --- 4. CORRECT MISTAKE (Logic Updated: Move Stock vs Update Stock) ---
   Future<void> correctStockEntry({
     required String logId,
     required String productId,
+    required String category, // 👈 NEW: Required to find/create target product
     required String newName,
     required String newModel,
     required double newMrp,
@@ -163,44 +164,136 @@ class InventoryRepository {
     required double newBuyingPrice,
     required int newQuantity,
   }) async {
+    // A. Pre-Check: Search for a product matching the NEW identity (Model + Category + MRP + Comm)
+    // We do this outside the transaction because we can't query flexibly inside.
+    final querySnap = await _firestore.collection('products')
+        .where('category', isEqualTo: category)
+        .where('model', isEqualTo: newModel)
+        .get();
+
+    String? targetProductId;
+
+    // Exact match filter
+    for (var doc in querySnap.docs) {
+      final d = doc.data();
+      final double dMrp = (d['marketPrice'] ?? 0).toDouble();
+      final double dComm = (d['commissionPercent'] ?? 0).toDouble();
+      if ((dMrp - newMrp).abs() < 0.01 && (dComm - newComm).abs() < 0.01) {
+        targetProductId = doc.id;
+        break;
+      }
+    }
+
+    // B. Transaction
     await _firestore.runTransaction((transaction) async {
       final logRef = _firestore.collection('inventory_logs').doc(logId);
-      final productRef = _firestore.collection('products').doc(productId);
+      final oldProductRef = _firestore.collection('products').doc(productId);
 
-      // 1. READS
       final logSnap = await transaction.get(logRef);
       if (!logSnap.exists) throw Exception("Log entry not found");
-      final oldQuantity = (logSnap.data()?['quantityAdded'] as num? ?? 0).toInt();
 
-      final productSnap = await transaction.get(productRef);
+      final oldLogData = logSnap.data()!;
+      final int oldQuantity = (oldLogData['quantityAdded'] as num).toInt();
 
-      // 2. LOGIC
-      final int quantityDiff = newQuantity - oldQuantity;
+      // Check Old Product to determine if Identity changed
+      final oldProductSnap = await transaction.get(oldProductRef);
+      bool identityMatches = false;
 
-      // 3. WRITES
-      transaction.update(logRef, {
-        'productName': newName,
-        'productModel': newModel,
-        'marketPrice': newMrp,
-        'commissionPercent': newComm,
-        'buyingPrice': newBuyingPrice,
-        'quantityAdded': newQuantity,
-      });
+      if (oldProductSnap.exists) {
+        final d = oldProductSnap.data()!;
+        final dModel = d['model'];
+        final double dMrp = (d['marketPrice'] ?? 0).toDouble();
+        final double dComm = (d['commissionPercent'] ?? 0).toDouble();
 
-      if (productSnap.exists) {
-        final currentStock = (productSnap.data()?['currentStock'] as num? ?? 0).toInt();
-        // Check if stock goes negative
-        if (quantityDiff < 0 && (currentStock + quantityDiff) < 0) {
-          throw Exception("Cannot reduce quantity: Items already sold (Stock: $currentStock)");
+        // If the current product already matches the NEW details, we are NOT moving.
+        if (dModel == newModel && (dMrp - newMrp).abs() < 0.01 && (dComm - newComm).abs() < 0.01) {
+          identityMatches = true;
+        }
+      }
+
+      if (identityMatches) {
+        // --- SCENARIO 1: SAME IDENTITY (Only Name/Qty correction) ---
+        // Just update the existing product
+        final int qtyDiff = newQuantity - oldQuantity;
+
+        if (oldProductSnap.exists) {
+          final currentStock = (oldProductSnap.data()!['currentStock'] as num).toInt();
+          if (qtyDiff < 0 && (currentStock + qtyDiff) < 0) {
+            throw Exception("Cannot reduce quantity: Items already sold.");
+          }
+
+          transaction.update(oldProductRef, {
+            'name': newName, // Allow name typo fix
+            'buyingPrice': newBuyingPrice,
+            'currentStock': FieldValue.increment(qtyDiff),
+          });
         }
 
-        transaction.update(productRef, {
-          'name': newName,
-          'model': newModel,
+        transaction.update(logRef, {
+          'productName': newName,
+          'productModel': newModel,
           'marketPrice': newMrp,
           'commissionPercent': newComm,
           'buyingPrice': newBuyingPrice,
-          'currentStock': FieldValue.increment(quantityDiff),
+          'quantityAdded': newQuantity,
+        });
+
+      } else {
+        // --- SCENARIO 2: DIFFERENT IDENTITY (Stock Move) ---
+        // The user changed Model/Price, implying this batch belongs to a DIFFERENT product.
+
+        // 1. Revert Stock from OLD Product
+        if (oldProductSnap.exists) {
+          final currentStock = (oldProductSnap.data()!['currentStock'] as num).toInt();
+          if ((currentStock - oldQuantity) < 0) {
+            throw Exception("Cannot move stock: Original items already sold.");
+          }
+          transaction.update(oldProductRef, {
+            'currentStock': FieldValue.increment(-oldQuantity),
+          });
+        }
+
+        // 2. Add Stock to TARGET Product
+        String finalProductId;
+
+        if (targetProductId != null) {
+          // Target Exists
+          final targetRef = _firestore.collection('products').doc(targetProductId);
+          finalProductId = targetProductId!;
+
+          transaction.update(targetRef, {
+            'currentStock': FieldValue.increment(newQuantity),
+            'buyingPrice': newBuyingPrice,
+            'lastUpdated': FieldValue.serverTimestamp(),
+          });
+        } else {
+          // Target New
+          final newProductRef = _firestore.collection('products').doc();
+          finalProductId = newProductRef.id;
+
+          transaction.set(newProductRef, {
+            'name': newName,
+            'model': newModel,
+            'category': category, // Uses passed category
+            'capacity': '',
+            'color': '',
+            'marketPrice': newMrp,
+            'commissionPercent': newComm,
+            'buyingPrice': newBuyingPrice,
+            'currentStock': newQuantity,
+            'lastUpdated': FieldValue.serverTimestamp(),
+          });
+        }
+
+        // 3. Update Log to point to NEW Product
+        transaction.update(logRef, {
+          'productId': finalProductId,
+          'productName': newName,
+          'productModel': newModel,
+          'marketPrice': newMrp,
+          'commissionPercent': newComm,
+          'buyingPrice': newBuyingPrice,
+          'quantityAdded': newQuantity,
         });
       }
     });
@@ -233,7 +326,6 @@ class InventoryRepository {
 
         // 👇 The Check
         if (currentStock < quantityToRemove) {
-          // 👇 The Exact Custom Message
           throw Exception("You don't have the available stock right now that why this deletation request is rejected");
         }
 
