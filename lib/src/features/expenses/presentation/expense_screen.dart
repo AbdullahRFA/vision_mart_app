@@ -3,7 +3,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 import '../data/expense_repository.dart';
 import '../domain/expense_model.dart';
-import 'expense_pdf_generator.dart'; // 👈 Import Generator
+import 'expense_pdf_generator.dart';
+import 'add_batch_expense_screen.dart'; // 👈 Import new screen
 
 class ExpenseScreen extends ConsumerStatefulWidget {
   const ExpenseScreen({super.key});
@@ -14,14 +15,14 @@ class ExpenseScreen extends ConsumerStatefulWidget {
 
 class _ExpenseScreenState extends ConsumerState<ExpenseScreen> {
   String _selectedFilter = 'This Month'; // Default view
-  DateTime? _customDate; // 👈 Store selected custom date
+  DateTime? _customDate;
 
   final List<String> _filters = [
     'Today',
     'This Week',
     'This Month',
     'This Year',
-    'Custom', // 👈 Added Custom Option
+    'Custom',
     'All Time'
   ];
 
@@ -38,14 +39,13 @@ class _ExpenseScreenState extends ConsumerState<ExpenseScreen> {
         case 'Today':
           return checkDate == today;
         case 'This Week':
-        // Assuming week starts on Monday
           final startOfWeek = today.subtract(Duration(days: today.weekday - 1));
           return date.isAfter(startOfWeek.subtract(const Duration(seconds: 1)));
         case 'This Month':
           return date.year == now.year && date.month == now.month;
         case 'This Year':
           return date.year == now.year;
-        case 'Custom': // 👈 Handle Custom Date
+        case 'Custom':
           if (_customDate == null) return false;
           final target = DateTime(_customDate!.year, _customDate!.month, _customDate!.day);
           return checkDate == target;
@@ -56,7 +56,6 @@ class _ExpenseScreenState extends ConsumerState<ExpenseScreen> {
     }).toList();
   }
 
-  // 👇 Print Action
   Future<void> _printExpenses() async {
     final expenseAsync = ref.read(expenseStreamProvider);
 
@@ -92,7 +91,6 @@ class _ExpenseScreenState extends ConsumerState<ExpenseScreen> {
       appBar: AppBar(
         title: const Text("Business Expenses"),
         actions: [
-          // 👇 Print Button
           IconButton(
             icon: const Icon(Icons.print),
             tooltip: "Print Report",
@@ -100,8 +98,12 @@ class _ExpenseScreenState extends ConsumerState<ExpenseScreen> {
           ),
         ],
       ),
+      // 👇 CHANGED: Navigate to Batch Add Screen
       floatingActionButton: FloatingActionButton.extended(
-        onPressed: () => _showAddExpenseDialog(context, ref),
+        onPressed: () => Navigator.push(
+            context,
+            MaterialPageRoute(builder: (context) => const AddBatchExpenseScreen())
+        ),
         label: const Text("Add Expense"),
         icon: const Icon(Icons.add),
         backgroundColor: Colors.redAccent,
@@ -116,8 +118,6 @@ class _ExpenseScreenState extends ConsumerState<ExpenseScreen> {
             child: Row(
               children: _filters.map((filter) {
                 final isSelected = _selectedFilter == filter;
-
-                // Dynamic label for Custom
                 String label = filter;
                 if (filter == 'Custom' && _customDate != null) {
                   label = DateFormat('dd MMM').format(_customDate!);
@@ -167,16 +167,13 @@ class _ExpenseScreenState extends ConsumerState<ExpenseScreen> {
           Expanded(
             child: expenseAsync.when(
               data: (allExpenses) {
-                // Apply the selected filter
                 final filteredExpenses = _applyFilter(allExpenses);
-
-                // Calculate Total for the selected period
                 double totalAmount = 0;
                 for (var e in filteredExpenses) totalAmount += e.amount;
 
                 return Column(
                   children: [
-                    // --- SUMMARY CARD (Dynamic) ---
+                    // --- SUMMARY CARD ---
                     Container(
                       width: double.infinity,
                       margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
@@ -267,6 +264,7 @@ class _ExpenseScreenState extends ConsumerState<ExpenseScreen> {
     );
   }
 
+  // Card Builder
   Widget _buildExpenseCard(BuildContext context, WidgetRef ref, Expense expense, bool isDark) {
     return Card(
       color: isDark ? const Color(0xFF1E293B) : Colors.white,
@@ -288,12 +286,10 @@ class _ExpenseScreenState extends ConsumerState<ExpenseScreen> {
           children: [
             Text(
               "-৳${expense.amount.toStringAsFixed(0)}",
-              style: const TextStyle(
-                  fontWeight: FontWeight.bold,
-                  color: Colors.red,
-                  fontSize: 16),
+              style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.red, fontSize: 16),
             ),
             const SizedBox(width: 8),
+            // Edit button still uses the single-edit dialog
             IconButton(
               icon: const Icon(Icons.edit, size: 20, color: Colors.blue),
               onPressed: () => _showEditExpenseDialog(context, ref, expense),
@@ -308,7 +304,6 @@ class _ExpenseScreenState extends ConsumerState<ExpenseScreen> {
     );
   }
 
-  // Grouping Logic
   Map<String, List<Expense>> _groupExpenses(List<Expense> expenses, bool isDark) {
     final grouped = <String, List<Expense>>{};
     final now = DateTime.now();
@@ -365,10 +360,7 @@ class _ExpenseScreenState extends ConsumerState<ExpenseScreen> {
     );
   }
 
-  void _showAddExpenseDialog(BuildContext context, WidgetRef ref) {
-    _showExpenseDialog(context, ref, null);
-  }
-
+  // KEEPING EDIT DIALOG FOR SINGLE EDITS
   void _showEditExpenseDialog(BuildContext context, WidgetRef ref, Expense expense) {
     _showExpenseDialog(context, ref, expense);
   }
@@ -389,7 +381,7 @@ class _ExpenseScreenState extends ConsumerState<ExpenseScreen> {
       context: context,
       builder: (ctx) => StatefulBuilder(
         builder: (context, setState) => AlertDialog(
-          title: Text(isEditing ? "Edit Expense" : "Add New Expense"),
+          title: Text(isEditing ? "Edit Expense" : "Add Expense"),
           content: SingleChildScrollView(
             child: Form(
               key: formKey,
@@ -440,24 +432,15 @@ class _ExpenseScreenState extends ConsumerState<ExpenseScreen> {
                 if (!formKey.currentState!.validate()) return;
                 Navigator.pop(ctx);
                 try {
-                  if (isEditing) {
-                    await ref.read(expenseRepositoryProvider).updateExpense(
-                      id: expense.id,
-                      category: selectedCategory,
-                      amount: double.parse(amountCtrl.text),
-                      note: noteCtrl.text.trim(),
-                      date: selectedDate,
-                    );
-                  } else {
-                    await ref.read(expenseRepositoryProvider).addExpense(
-                      category: selectedCategory,
-                      amount: double.parse(amountCtrl.text),
-                      note: noteCtrl.text.trim(),
-                      date: selectedDate,
-                    );
-                  }
+                  await ref.read(expenseRepositoryProvider).updateExpense(
+                    id: expense!.id,
+                    category: selectedCategory,
+                    amount: double.parse(amountCtrl.text),
+                    note: noteCtrl.text.trim(),
+                    date: selectedDate,
+                  );
                   if (context.mounted) {
-                    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(isEditing ? "Expense Updated" : "Expense Added")));
+                    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Expense Updated")));
                   }
                 } catch (e) {
                   if (context.mounted) {
@@ -465,7 +448,7 @@ class _ExpenseScreenState extends ConsumerState<ExpenseScreen> {
                   }
                 }
               },
-              child: Text(isEditing ? "Update" : "Save"),
+              child: const Text("Update"),
             ),
           ],
         ),
