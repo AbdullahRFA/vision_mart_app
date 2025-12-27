@@ -360,9 +360,20 @@ class _ReceiveProductScreenState extends ConsumerState<ReceiveProductScreen> {
     );
   }
 
-  // ... imports ...
+  // --- PREVIEW LOGIC (NEW) ---
+  void _previewBatch() {
+    if (_tempBatchList.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Batch list is empty")));
+      return;
+    }
 
-// ... inside _ReceiveProductScreenState ...
+    // Generate PDF (without saving to DB)
+    ReceivingPdfGenerator.generateBatchReceivingMemo(
+      products: _tempBatchList,
+      receivedBy: "Preview", // Placeholder for preview
+      receivingDate: _selectedDate,
+    );
+  }
 
   Future<void> _submitBatch() async {
     if (_tempBatchList.isEmpty) return;
@@ -389,8 +400,6 @@ class _ReceiveProductScreenState extends ConsumerState<ReceiveProductScreen> {
       if (mounted) setState(() => _isLoading = false);
     }
   }
-
-// ... rest of the file remains the same ...
 
   void _showBatchSuccessDialog(List<Product> itemsSaved, DateTime batchDate) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
@@ -841,21 +850,44 @@ class _ReceiveProductScreenState extends ConsumerState<ReceiveProductScreen> {
           Container(
             padding: const EdgeInsets.all(16),
             color: isDark ? const Color(0xFF0F172A) : Colors.white,
-            child: SizedBox(
-              width: double.infinity,
-              height: 50,
-              child: ElevatedButton(
-                onPressed: (_isLoading || _tempBatchList.isEmpty)
-                    ? null
-                    : _submitBatch,
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.green,
-                  foregroundColor: Colors.white,
+            child: Row(
+              children: [
+                Expanded(
+                  child: SizedBox(
+                    height: 50,
+                    child: OutlinedButton.icon(
+                      onPressed: _tempBatchList.isEmpty ? null : _previewBatch,
+                      icon: const Icon(Icons.visibility),
+                      label: const Text("PREVIEW"),
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: isDark ? Colors.white : Colors.blue,
+                        side: BorderSide(color: isDark ? Colors.white54 : Colors.blue),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                      ),
+                    ),
+                  ),
                 ),
-                child: _isLoading
-                    ? const CircularProgressIndicator(color: Colors.white)
-                    : const Text("SAVE BATCH"),
-              ),
+                const SizedBox(width: 10),
+                Expanded(
+                  flex: 2,
+                  child: SizedBox(
+                    height: 50,
+                    child: ElevatedButton(
+                      onPressed: (_isLoading || _tempBatchList.isEmpty)
+                          ? null
+                          : _submitBatch,
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.green,
+                        foregroundColor: Colors.white,
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                      ),
+                      child: _isLoading
+                          ? const CircularProgressIndicator(color: Colors.white)
+                          : const Text("SAVE BATCH"),
+                    ),
+                  ),
+                ),
+              ],
             ),
           ),
         ],
