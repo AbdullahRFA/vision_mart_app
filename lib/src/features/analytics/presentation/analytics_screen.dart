@@ -236,7 +236,8 @@ class _AnalyticsScreenState extends ConsumerState<AnalyticsScreen> {
                         Expanded(
                           child: _MetricCard(
                             title: "Revenue (Cash)",
-                            value: "৳${totalRevenue.toStringAsFixed(0)}",
+                            // 👇 Changed to 2 decimal places
+                            value: "৳${totalRevenue.toStringAsFixed(2)}",
                             color: Colors.green, // Revenue is Green
                             icon: Icons.attach_money,
                           ),
@@ -245,7 +246,8 @@ class _AnalyticsScreenState extends ConsumerState<AnalyticsScreen> {
                         Expanded(
                           child: _MetricCard(
                             title: "Net Profit",
-                            value: "৳${totalProfit.toStringAsFixed(0)}",
+                            // 👇 Changed to 2 decimal places
+                            value: "৳${totalProfit.toStringAsFixed(2)}",
                             color: totalProfit < 0 ? Colors.red : Colors.green, // Green/Red Logic
                             icon: totalProfit < 0 ? Icons.trending_down : Icons.trending_up,
                             isHighlighted: true,
@@ -299,8 +301,10 @@ class _AnalyticsScreenState extends ConsumerState<AnalyticsScreen> {
                                 title: invoice['customerName'] ?? 'Unknown',
                                 subtitle: "Invoice #...${invoice['id'].toString().substring(invoice['id'].toString().length - 4)} • $itemCount items",
                                 date: timeStr,
-                                amount: "৳${invoice['totalAmount']}",
-                                profit: "৳${(invoice['totalProfit'] as num).toStringAsFixed(0)}",
+                                // 👇 Changed to 2 decimal places
+                                amount: "৳${(invoice['totalAmount'] as num).toDouble().toStringAsFixed(2)}",
+                                // 👇 Changed to 2 decimal places
+                                profit: "৳${(invoice['totalProfit'] as num).toDouble().toStringAsFixed(2)}",
                               ),
                             );
                           }),
