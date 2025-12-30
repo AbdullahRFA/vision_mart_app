@@ -166,7 +166,7 @@ class PdfGenerator {
           pw.Text("A & R Vision Mart", style: pw.TextStyle(fontSize: 24, fontWeight: pw.FontWeight.bold)),
           pw.Text("Authorized Dealer: Vision Electronics"),
           pw.Text("Address: Damnash Bazar, Bagmara, Rajshahi"),
-          pw.Text("Mobile: 01718421902"),
+          pw.Text("Mobile: 01718421902, 01717958870"),
           pw.Divider(),
         ],
       ),
