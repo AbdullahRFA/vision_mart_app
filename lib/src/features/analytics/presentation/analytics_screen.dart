@@ -5,11 +5,70 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import '../data/analytics_repository.dart';
 import 'sales_detail_screen.dart';
 
-class AnalyticsScreen extends ConsumerWidget {
+// 👇 Changed to ConsumerStatefulWidget to hold local filter state
+class AnalyticsScreen extends ConsumerStatefulWidget {
   const AnalyticsScreen({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<AnalyticsScreen> createState() => _AnalyticsScreenState();
+}
+
+class _AnalyticsScreenState extends ConsumerState<AnalyticsScreen> {
+  // 👇 State for Profit/Loss Filter
+  String _profitFilter = 'All'; // Options: 'All', 'Profit', 'Loss'
+
+  void _setRange(WidgetRef ref, String type) {
+    final now = DateTime.now();
+    DateTime start;
+    DateTime end = DateTime(now.year, now.month, now.day, 23, 59, 59);
+
+    if (type == 'Today') {
+      start = DateTime(now.year, now.month, now.day, 0, 0, 0);
+    } else if (type == 'Week') {
+      start = now.subtract(Duration(days: now.weekday - 1));
+      start = DateTime(start.year, start.month, start.day, 0, 0, 0);
+    } else if (type == 'Month') {
+      start = DateTime(now.year, now.month, 1, 0, 0, 0);
+    } else if (type == 'Year') {
+      start = DateTime(now.year, 1, 1, 0, 0, 0);
+    } else if (type == 'All') {
+      start = DateTime(2020, 1, 1, 0, 0, 0);
+    } else {
+      return;
+    }
+    ref.read(dateRangeProvider.notifier).state = DateTimeRange(start: start, end: end);
+  }
+
+  Future<void> _pickDateRange(BuildContext context, WidgetRef ref) async {
+    final DateTimeRange? picked = await showDateRangePicker(
+      context: context,
+      firstDate: DateTime(2023),
+      lastDate: DateTime.now(),
+      currentDate: DateTime.now(),
+      builder: (context, child) {
+        return Theme(
+          data: ThemeData.dark().copyWith(
+            colorScheme: const ColorScheme.dark(
+              primary: Colors.yellow,
+              onPrimary: Colors.black,
+              surface: Color(0xFF1E293B),
+              onSurface: Colors.white,
+            ),
+          ),
+          child: child!,
+        );
+      },
+    );
+
+    if (picked != null) {
+      final adjustedStart = DateTime(picked.start.year, picked.start.month, picked.start.day, 0, 0, 0);
+      final adjustedEnd = DateTime(picked.end.year, picked.end.month, picked.end.day, 23, 59, 59);
+      ref.read(dateRangeProvider.notifier).state = DateTimeRange(start: adjustedStart, end: adjustedEnd);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
     final salesAsync = ref.watch(salesReportProvider);
     final currentRange = ref.watch(dateRangeProvider);
 
@@ -65,7 +124,7 @@ class AnalyticsScreen extends ConsumerWidget {
                   ),
                 ),
                 const SizedBox(height: 16),
-                // Filter Pills
+                // Filter Pills (Date)
                 SingleChildScrollView(
                   scrollDirection: Axis.horizontal,
                   child: Row(
@@ -76,12 +135,44 @@ class AnalyticsScreen extends ConsumerWidget {
                       const SizedBox(width: 8),
                       _FilterChip(label: "This Month", onTap: () => _setRange(ref, 'Month')),
                       const SizedBox(width: 8),
-                      // 👇 NEW FILTERS
                       _FilterChip(label: "This Year", onTap: () => _setRange(ref, 'Year')),
                       const SizedBox(width: 8),
                       _FilterChip(label: "All Time", onTap: () => _setRange(ref, 'All')),
                     ],
                   ),
+                ),
+                const SizedBox(height: 16),
+
+                // 👇 NEW: Profit/Loss Filter Toggles
+                Row(
+                  children: [
+                    Expanded(
+                      child: _ProfitFilterButton(
+                        label: "All Sales",
+                        isSelected: _profitFilter == 'All',
+                        color: Colors.blue,
+                        onTap: () => setState(() => _profitFilter = 'All'),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: _ProfitFilterButton(
+                        label: "Profit Only",
+                        isSelected: _profitFilter == 'Profit',
+                        color: Colors.green,
+                        onTap: () => setState(() => _profitFilter = 'Profit'),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: _ProfitFilterButton(
+                        label: "Loss Only",
+                        isSelected: _profitFilter == 'Loss',
+                        color: Colors.red,
+                        onTap: () => setState(() => _profitFilter = 'Loss'),
+                      ),
+                    ),
+                  ],
                 ),
               ],
             ),
@@ -91,11 +182,21 @@ class AnalyticsScreen extends ConsumerWidget {
           Expanded(
             child: salesAsync.when(
               data: (allInvoices) {
-                // Filter: Only show sales where Due is effectively 0 (Fully Paid)
-                final invoices = allInvoices.where((invoice) {
+                // Filter 1: Only show fully paid (existing logic)
+                var invoices = allInvoices.where((invoice) {
                   final due = (invoice['dueAmount'] ?? 0).toDouble();
                   return due <= 0.5;
                 }).toList();
+
+                // 👇 Filter 2: Profit/Loss Toggle
+                if (_profitFilter != 'All') {
+                  invoices = invoices.where((invoice) {
+                    final profit = (invoice['totalProfit'] ?? 0).toDouble();
+                    if (_profitFilter == 'Profit') return profit > 0;
+                    if (_profitFilter == 'Loss') return profit <= 0; // Assuming 0 or less is loss/break-even
+                    return true;
+                  }).toList();
+                }
 
                 double totalRevenue = 0;
                 double totalProfit = 0;
@@ -113,7 +214,12 @@ class AnalyticsScreen extends ConsumerWidget {
                       children: [
                         Icon(Icons.check_circle_outline, size: 80, color: Colors.white.withOpacity(0.1)),
                         const SizedBox(height: 16),
-                        Text("No fully paid records found", style: TextStyle(color: Colors.white.withOpacity(0.5))),
+                        Text(
+                            _profitFilter == 'All'
+                                ? "No fully paid records found"
+                                : "No $_profitFilter records found",
+                            style: TextStyle(color: Colors.white.withOpacity(0.5))
+                        ),
                       ],
                     ),
                   );
@@ -235,55 +341,47 @@ class AnalyticsScreen extends ConsumerWidget {
     }
     return grouped;
   }
+}
 
-  void _setRange(WidgetRef ref, String type) {
-    final now = DateTime.now();
-    DateTime start;
-    DateTime end = DateTime(now.year, now.month, now.day, 23, 59, 59);
+// 👇 NEW: Filter Button Widget
+class _ProfitFilterButton extends StatelessWidget {
+  final String label;
+  final bool isSelected;
+  final Color color;
+  final VoidCallback onTap;
 
-    if (type == 'Today') {
-      start = DateTime(now.year, now.month, now.day, 0, 0, 0);
-    } else if (type == 'Week') {
-      start = now.subtract(Duration(days: now.weekday - 1));
-      start = DateTime(start.year, start.month, start.day, 0, 0, 0);
-    } else if (type == 'Month') {
-      start = DateTime(now.year, now.month, 1, 0, 0, 0);
-    } else if (type == 'Year') {
-      start = DateTime(now.year, 1, 1, 0, 0, 0);
-    } else if (type == 'All') {
-      start = DateTime(2020, 1, 1, 0, 0, 0);
-    } else {
-      return;
-    }
-    ref.read(dateRangeProvider.notifier).state = DateTimeRange(start: start, end: end);
-  }
+  const _ProfitFilterButton({
+    required this.label,
+    required this.isSelected,
+    required this.color,
+    required this.onTap,
+  });
 
-  Future<void> _pickDateRange(BuildContext context, WidgetRef ref) async {
-    final DateTimeRange? picked = await showDateRangePicker(
-      context: context,
-      firstDate: DateTime(2023),
-      lastDate: DateTime.now(),
-      currentDate: DateTime.now(),
-      builder: (context, child) {
-        return Theme(
-          data: ThemeData.dark().copyWith(
-            colorScheme: const ColorScheme.dark(
-              primary: Colors.yellow,
-              onPrimary: Colors.black,
-              surface: Color(0xFF1E293B),
-              onSurface: Colors.white,
-            ),
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        height: 40,
+        alignment: Alignment.center,
+        decoration: BoxDecoration(
+          color: isSelected ? color.withOpacity(0.2) : Colors.transparent,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(
+            color: isSelected ? color : Colors.white24,
+            width: isSelected ? 1.5 : 1,
           ),
-          child: child!,
-        );
-      },
+        ),
+        child: Text(
+          label,
+          style: TextStyle(
+            color: isSelected ? color : Colors.white60,
+            fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+            fontSize: 13,
+          ),
+        ),
+      ),
     );
-
-    if (picked != null) {
-      final adjustedStart = DateTime(picked.start.year, picked.start.month, picked.start.day, 0, 0, 0);
-      final adjustedEnd = DateTime(picked.end.year, picked.end.month, picked.end.day, 23, 59, 59);
-      ref.read(dateRangeProvider.notifier).state = DateTimeRange(start: adjustedStart, end: adjustedEnd);
-    }
   }
 }
 
@@ -414,6 +512,10 @@ class _TransactionCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // Parse profit string to double for coloring
+    final double profitVal = double.tryParse(profit.replaceAll(RegExp(r'[^0-9.-]'), '')) ?? 0;
+    final isLoss = profitVal < 0;
+
     return Container(
       margin: const EdgeInsets.only(bottom: 12),
       padding: const EdgeInsets.all(16),
@@ -451,12 +553,17 @@ class _TransactionCard extends StatelessWidget {
                 margin: const EdgeInsets.only(top: 4),
                 padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                 decoration: BoxDecoration(
-                  color: Colors.green.withOpacity(0.1),
+                  color: isLoss ? Colors.red.withOpacity(0.1) : Colors.green.withOpacity(0.1),
                   borderRadius: BorderRadius.circular(4),
                 ),
                 child: Text(
-                  "+$profit",
-                  style: TextStyle(fontSize: 10, color: Colors.green.shade400, fontWeight: FontWeight.bold),
+                  // Show +/- sign based on profit value
+                  "${profitVal > 0 ? '+' : ''}${profit}",
+                  style: TextStyle(
+                    fontSize: 10,
+                    color: isLoss ? Colors.red.shade400 : Colors.green.shade400,
+                    fontWeight: FontWeight.bold,
+                  ),
                 ),
               ),
             ],
