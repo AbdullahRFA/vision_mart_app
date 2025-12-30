@@ -5,7 +5,6 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import '../data/analytics_repository.dart';
 import 'sales_detail_screen.dart';
 
-// 👇 Changed to ConsumerStatefulWidget to hold local filter state
 class AnalyticsScreen extends ConsumerStatefulWidget {
   const AnalyticsScreen({super.key});
 
@@ -14,8 +13,18 @@ class AnalyticsScreen extends ConsumerStatefulWidget {
 }
 
 class _AnalyticsScreenState extends ConsumerState<AnalyticsScreen> {
-  // 👇 State for Profit/Loss Filter
-  String _profitFilter = 'All'; // Options: 'All', 'Profit', 'Loss'
+  // Profit/Loss Filter State
+  String _profitFilter = 'All';
+
+  // 👇 NEW: Search State
+  String _searchQuery = "";
+  final TextEditingController _searchController = TextEditingController();
+
+  @override
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
+  }
 
   void _setRange(WidgetRef ref, String type) {
     final now = DateTime.now();
@@ -72,7 +81,6 @@ class _AnalyticsScreenState extends ConsumerState<AnalyticsScreen> {
     final salesAsync = ref.watch(salesReportProvider);
     final currentRange = ref.watch(dateRangeProvider);
 
-    // Enforcing Dark Background to support White/Yellow text
     const backgroundColor = Color(0xFF0F172A);
     const cardColor = Color(0xFF1E293B);
 
@@ -124,6 +132,7 @@ class _AnalyticsScreenState extends ConsumerState<AnalyticsScreen> {
                   ),
                 ),
                 const SizedBox(height: 16),
+
                 // Filter Pills (Date)
                 SingleChildScrollView(
                   scrollDirection: Axis.horizontal,
@@ -143,7 +152,7 @@ class _AnalyticsScreenState extends ConsumerState<AnalyticsScreen> {
                 ),
                 const SizedBox(height: 16),
 
-                // 👇 NEW: Profit/Loss Filter Toggles
+                // Profit/Loss Filter Toggles
                 Row(
                   children: [
                     Expanded(
@@ -174,6 +183,39 @@ class _AnalyticsScreenState extends ConsumerState<AnalyticsScreen> {
                     ),
                   ],
                 ),
+                const SizedBox(height: 16),
+
+                // 👇 NEW: Search Bar
+                TextField(
+                  controller: _searchController,
+                  style: const TextStyle(color: Colors.white),
+                  decoration: InputDecoration(
+                    hintText: "Search Customer or Invoice ID...",
+                    hintStyle: const TextStyle(color: Colors.white54),
+                    prefixIcon: const Icon(Icons.search, color: Colors.white54),
+                    suffixIcon: _searchQuery.isNotEmpty
+                        ? IconButton(
+                      icon: const Icon(Icons.clear, color: Colors.white54),
+                      onPressed: () {
+                        _searchController.clear();
+                        setState(() => _searchQuery = "");
+                      },
+                    )
+                        : null,
+                    filled: true,
+                    fillColor: Colors.black12,
+                    contentPadding: const EdgeInsets.symmetric(horizontal: 16),
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12),
+                      borderSide: BorderSide.none,
+                    ),
+                  ),
+                  onChanged: (val) {
+                    setState(() {
+                      _searchQuery = val.trim().toLowerCase();
+                    });
+                  },
+                ),
               ],
             ),
           ),
@@ -188,13 +230,22 @@ class _AnalyticsScreenState extends ConsumerState<AnalyticsScreen> {
                   return due <= 0.5;
                 }).toList();
 
-                // 👇 Filter 2: Profit/Loss Toggle
+                // Filter 2: Profit/Loss Toggle
                 if (_profitFilter != 'All') {
                   invoices = invoices.where((invoice) {
                     final profit = (invoice['totalProfit'] ?? 0).toDouble();
                     if (_profitFilter == 'Profit') return profit > 0;
-                    if (_profitFilter == 'Loss') return profit <= 0; // Assuming 0 or less is loss/break-even
+                    if (_profitFilter == 'Loss') return profit <= 0;
                     return true;
+                  }).toList();
+                }
+
+                // 👇 NEW: Filter 3: Search Query
+                if (_searchQuery.isNotEmpty) {
+                  invoices = invoices.where((invoice) {
+                    final customerName = (invoice['customerName'] ?? '').toString().toLowerCase();
+                    final invoiceId = (invoice['id'] ?? '').toString().toLowerCase();
+                    return customerName.contains(_searchQuery) || invoiceId.contains(_searchQuery);
                   }).toList();
                 }
 
@@ -212,12 +263,12 @@ class _AnalyticsScreenState extends ConsumerState<AnalyticsScreen> {
                     child: Column(
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [
-                        Icon(Icons.check_circle_outline, size: 80, color: Colors.white.withOpacity(0.1)),
+                        Icon(Icons.search_off, size: 80, color: Colors.white.withOpacity(0.1)),
                         const SizedBox(height: 16),
                         Text(
-                            _profitFilter == 'All'
-                                ? "No fully paid records found"
-                                : "No $_profitFilter records found",
+                            _searchQuery.isNotEmpty
+                                ? "No results for \"$_searchQuery\""
+                                : (_profitFilter == 'All' ? "No records found" : "No $_profitFilter records found"),
                             style: TextStyle(color: Colors.white.withOpacity(0.5))
                         ),
                       ],
@@ -236,9 +287,8 @@ class _AnalyticsScreenState extends ConsumerState<AnalyticsScreen> {
                         Expanded(
                           child: _MetricCard(
                             title: "Revenue (Cash)",
-                            // 👇 Changed to 2 decimal places
                             value: "৳${totalRevenue.toStringAsFixed(2)}",
-                            color: Colors.green, // Revenue is Green
+                            color: Colors.green,
                             icon: Icons.attach_money,
                           ),
                         ),
@@ -246,9 +296,8 @@ class _AnalyticsScreenState extends ConsumerState<AnalyticsScreen> {
                         Expanded(
                           child: _MetricCard(
                             title: "Net Profit",
-                            // 👇 Changed to 2 decimal places
                             value: "৳${totalProfit.toStringAsFixed(2)}",
-                            color: totalProfit < 0 ? Colors.red : Colors.green, // Green/Red Logic
+                            color: totalProfit < 0 ? Colors.red : Colors.green,
                             icon: totalProfit < 0 ? Icons.trending_down : Icons.trending_up,
                             isHighlighted: true,
                           ),
@@ -260,7 +309,7 @@ class _AnalyticsScreenState extends ConsumerState<AnalyticsScreen> {
                     _MetricCard(
                       title: "Completed Orders",
                       value: "$totalOrders",
-                      color: Colors.yellow, // Count is Yellow
+                      color: Colors.yellow,
                       icon: Icons.receipt_long,
                       isHorizontal: true,
                     ),
@@ -279,7 +328,7 @@ class _AnalyticsScreenState extends ConsumerState<AnalyticsScreen> {
                               style: const TextStyle(
                                   fontSize: 16,
                                   fontWeight: FontWeight.bold,
-                                  color: Colors.yellow // Header Yellow
+                                  color: Colors.yellow
                               ),
                             ),
                           ),
@@ -301,9 +350,7 @@ class _AnalyticsScreenState extends ConsumerState<AnalyticsScreen> {
                                 title: invoice['customerName'] ?? 'Unknown',
                                 subtitle: "Invoice #...${invoice['id'].toString().substring(invoice['id'].toString().length - 4)} • $itemCount items",
                                 date: timeStr,
-                                // 👇 Changed to 2 decimal places
                                 amount: "৳${(invoice['totalAmount'] as num).toDouble().toStringAsFixed(2)}",
-                                // 👇 Changed to 2 decimal places
                                 profit: "৳${(invoice['totalProfit'] as num).toDouble().toStringAsFixed(2)}",
                               ),
                             );
@@ -347,7 +394,9 @@ class _AnalyticsScreenState extends ConsumerState<AnalyticsScreen> {
   }
 }
 
-// 👇 NEW: Filter Button Widget
+// ... Rest of the existing widgets (_ProfitFilterButton, _FilterChip, _MetricCard, _TransactionCard) ...
+// (Keeping them exactly as they were in previous context)
+
 class _ProfitFilterButton extends StatelessWidget {
   final String label;
   final bool isSelected;
