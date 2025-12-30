@@ -2,23 +2,50 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
-import '../../analytics/presentation/sales_detail_screen.dart'; // 👈 Import Detail Screen
+import '../../analytics/presentation/sales_detail_screen.dart';
 import '../data/due_repository.dart';
 import 'payment_receipt_generator.dart';
 
-class DueScreen extends ConsumerWidget {
+// 👇 Converted to Stateful Widget for Search State
+class DueScreen extends ConsumerStatefulWidget {
   const DueScreen({super.key});
 
   @override
-  Widget build(BuildContext parentContext, WidgetRef ref) {
+  ConsumerState<DueScreen> createState() => _DueScreenState();
+}
+
+class _DueScreenState extends ConsumerState<DueScreen> {
+  final TextEditingController _searchController = TextEditingController();
+  String _searchQuery = "";
+
+  @override
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
     final dueListAsync = ref.watch(dueStreamProvider);
-    final isDark = Theme.of(parentContext).brightness == Brightness.dark;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
 
     return Scaffold(
       appBar: AppBar(title: const Text("Due List (Invoices)")),
       body: dueListAsync.when(
-        data: (dues) {
-          if (dues.isEmpty) {
+        data: (allDues) {
+          // 1. FILTER LOGIC
+          var dues = allDues;
+          if (_searchQuery.isNotEmpty) {
+            dues = allDues.where((item) {
+              final name = (item['customerName'] ?? '').toString().toLowerCase();
+              final phone = (item['customerPhone'] ?? '').toString().toLowerCase();
+              final id = (item['saleId'] ?? item['id'] ?? '').toString().toLowerCase();
+              return name.contains(_searchQuery) || phone.contains(_searchQuery) || id.contains(_searchQuery);
+            }).toList();
+          }
+
+          // 2. EMPTY STATE (No Dues at all)
+          if (allDues.isEmpty) {
             return Center(
               child: Column(
                 mainAxisAlignment: MainAxisAlignment.center,
@@ -38,7 +65,7 @@ class DueScreen extends ConsumerWidget {
             );
           }
 
-          // Calculate Total Outstanding
+          // Calculate Total Outstanding (Based on filtered results)
           double totalOutstanding = 0;
           for (var item in dues) {
             final double due = (item['dueAmount'] ?? 0).toDouble();
@@ -47,6 +74,39 @@ class DueScreen extends ConsumerWidget {
 
           return Column(
             children: [
+              // 👇 NEW: SEARCH BAR
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
+                child: TextField(
+                  controller: _searchController,
+                  decoration: InputDecoration(
+                    hintText: "Search Name, Phone or ID...",
+                    prefixIcon: const Icon(Icons.search),
+                    suffixIcon: _searchQuery.isNotEmpty
+                        ? IconButton(
+                      icon: const Icon(Icons.clear),
+                      onPressed: () {
+                        _searchController.clear();
+                        setState(() => _searchQuery = "");
+                      },
+                    )
+                        : null,
+                    filled: true,
+                    fillColor: isDark ? const Color(0xFF1E293B) : Colors.grey[100],
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12),
+                      borderSide: BorderSide.none,
+                    ),
+                    contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                  ),
+                  onChanged: (val) {
+                    setState(() {
+                      _searchQuery = val.trim().toLowerCase();
+                    });
+                  },
+                ),
+              ),
+
               // SUMMARY CARD
               Container(
                 width: double.infinity,
@@ -69,9 +129,9 @@ class DueScreen extends ConsumerWidget {
                 ),
                 child: Column(
                   children: [
-                    const Text(
-                      "Total Outstanding Amount",
-                      style: TextStyle(color: Colors.white70, fontSize: 14, fontWeight: FontWeight.w500),
+                    Text(
+                      _searchQuery.isNotEmpty ? "Outstanding (Filtered)" : "Total Outstanding Amount",
+                      style: const TextStyle(color: Colors.white70, fontSize: 14, fontWeight: FontWeight.w500),
                     ),
                     const SizedBox(height: 8),
                     Text(
@@ -84,7 +144,18 @@ class DueScreen extends ConsumerWidget {
 
               // THE LIST
               Expanded(
-                child: ListView.separated(
+                child: dues.isEmpty
+                    ? Center(
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Icon(Icons.search_off, size: 60, color: isDark ? Colors.white24 : Colors.grey[300]),
+                      const SizedBox(height: 10),
+                      Text("No results found", style: TextStyle(color: isDark ? Colors.white54 : Colors.grey)),
+                    ],
+                  ),
+                )
+                    : ListView.separated(
                   padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
                   itemCount: dues.length,
                   separatorBuilder: (_, __) => const SizedBox(height: 12),
@@ -104,13 +175,11 @@ class DueScreen extends ConsumerWidget {
                       totalAmount: totalAmount,
                       itemCount: itemCount,
                       dateStr: dateStr,
-                      // 👇 Navigate to Detail Screen on Tap
                       onTap: () {
                         Navigator.push(
-                          parentContext,
+                          context,
                           MaterialPageRoute(
                             builder: (context) => SalesDetailScreen(
-                              // Ensure 'id' is passed correctly for the detail screen to fetch items
                               invoice: {
                                 ...invoice,
                                 'id': invoice['saleId'] ?? invoice['id'],
@@ -119,7 +188,7 @@ class DueScreen extends ConsumerWidget {
                           ),
                         );
                       },
-                      onPay: () => _showPaymentDialog(parentContext, ref, invoice, remainingDue),
+                      onPay: () => _showPaymentDialog(context, ref, invoice, remainingDue),
                     );
                   },
                 ),
@@ -296,7 +365,7 @@ class _DueCard extends StatelessWidget {
   final int itemCount;
   final String dateStr;
   final VoidCallback onPay;
-  final VoidCallback onTap; // 👈 NEW
+  final VoidCallback onTap;
 
   const _DueCard({
     required this.sale,
@@ -305,7 +374,7 @@ class _DueCard extends StatelessWidget {
     required this.itemCount,
     required this.dateStr,
     required this.onPay,
-    required this.onTap, // 👈 NEW
+    required this.onTap,
   });
 
   @override
@@ -324,12 +393,11 @@ class _DueCard extends StatelessWidget {
           ),
         ],
       ),
-      // 👇 Wrap with Material & InkWell for Tap
       child: Material(
         color: Colors.transparent,
         borderRadius: BorderRadius.circular(16),
         child: InkWell(
-          onTap: onTap, // 👈 Handle Tap
+          onTap: onTap,
           borderRadius: BorderRadius.circular(16),
           child: Padding(
             padding: const EdgeInsets.all(16.0),
