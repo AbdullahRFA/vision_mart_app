@@ -141,20 +141,22 @@ class _SalesDetailScreenState extends ConsumerState<SalesDetailScreen> {
                 children: [
                   Text("Invoice #$invoiceId", style: TextStyle(color: isDark ? Colors.white54 : Colors.grey)),
                   const SizedBox(height: 5),
+                  // 👇 Updated to 2 decimal places
                   Text(
-                    "৳${totalAmount.toStringAsFixed(0)}",
+                    "৳${totalAmount.toStringAsFixed(2)}",
                     style: TextStyle(fontSize: 36, fontWeight: FontWeight.bold, color: isDark ? Colors.white : Colors.black87),
                   ),
                   const SizedBox(height: 10),
                   Container(
                     padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                     decoration: BoxDecoration(
-                      color: dueAmount > 0 ? Colors.red.withOpacity(0.1) : Colors.green.withOpacity(0.1),
+                      color: dueAmount > 0.01 ? Colors.red.withOpacity(0.1) : Colors.green.withOpacity(0.1),
                       borderRadius: BorderRadius.circular(20),
                     ),
+                    // 👇 Updated to 2 decimal places
                     child: Text(
-                      dueAmount > 0 ? "Due: ৳${dueAmount.toStringAsFixed(0)}" : "Fully Paid",
-                      style: TextStyle(fontWeight: FontWeight.bold, color: dueAmount > 0 ? Colors.red : Colors.green),
+                      dueAmount > 0.01 ? "Due: ৳${dueAmount.toStringAsFixed(2)}" : "Fully Paid",
+                      style: TextStyle(fontWeight: FontWeight.bold, color: dueAmount > 0.01 ? Colors.red : Colors.green),
                     ),
                   ),
                   const SizedBox(height: 10),
@@ -194,9 +196,10 @@ class _SalesDetailScreenState extends ConsumerState<SalesDetailScreen> {
                   children: items.map((item) {
                     final pName = item['productModel'] ?? item['productName'] ?? 'Item';
                     final qty = item['quantity'] ?? 0;
-                    final price = item['totalAmount'] ?? 0;
-                    final mrp = item['mrp'] ?? 0;
-                    final disc = item['discountPercent'] ?? 0;
+                    final price = (item['totalAmount'] ?? 0).toDouble();
+                    final mrp = (item['mrp'] ?? 0).toDouble();
+                    // 👇 Ensure Double for Formatting
+                    final disc = (item['discountPercent'] ?? 0).toDouble();
 
                     return Column(
                       children: [
@@ -214,11 +217,13 @@ class _SalesDetailScreenState extends ConsumerState<SalesDetailScreen> {
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
                                   Text("$pName", style: TextStyle(fontWeight: FontWeight.bold, color: isDark ? Colors.white : Colors.black87)),
-                                  Text("MRP: ৳$mrp • Disc: $disc%", style: TextStyle(fontSize: 12, color: isDark ? Colors.white54 : Colors.grey)),
+                                  // 👇 Updated MRP and Discount to 2 decimal places
+                                  Text("MRP: ৳${mrp.toStringAsFixed(2)} • Disc: ${disc.toStringAsFixed(2)}%", style: TextStyle(fontSize: 12, color: isDark ? Colors.white54 : Colors.grey)),
                                 ],
                               ),
                             ),
-                            Text("৳$price", style: TextStyle(fontWeight: FontWeight.bold, color: isDark ? Colors.white : Colors.black87)),
+                            // 👇 Updated Item Price to 2 decimal places
+                            Text("৳${price.toStringAsFixed(2)}", style: TextStyle(fontWeight: FontWeight.bold, color: isDark ? Colors.white : Colors.black87)),
                           ],
                         ),
                         Divider(color: isDark ? Colors.white10 : Colors.grey.shade100),
@@ -236,11 +241,12 @@ class _SalesDetailScreenState extends ConsumerState<SalesDetailScreen> {
               icon: Icons.receipt_long_rounded,
               color: Colors.orange,
               children: [
-                _DetailRow(label: "Total Amount", value: "৳${totalAmount.toStringAsFixed(0)}"),
-                _DetailRow(label: "Paid Amount", value: "৳${paidAmount.toStringAsFixed(0)}"),
-                _DetailRow(label: "Due Amount", value: "৳${dueAmount.toStringAsFixed(0)}", isBold: true, valueColor: dueAmount > 0 ? Colors.red : Colors.green),
+                // 👇 Updated all summary rows to 2 decimal places
+                _DetailRow(label: "Total Amount", value: "৳${totalAmount.toStringAsFixed(2)}"),
+                _DetailRow(label: "Paid Amount", value: "৳${paidAmount.toStringAsFixed(2)}"),
+                _DetailRow(label: "Due Amount", value: "৳${dueAmount.toStringAsFixed(2)}", isBold: true, valueColor: dueAmount > 0.01 ? Colors.red : Colors.green),
                 const Divider(color: Colors.white24),
-                _DetailRow(label: "Net Profit (Est.)", value: "৳${totalProfit.toStringAsFixed(0)}", valueColor: Colors.green, isBold: true),
+                _DetailRow(label: "Net Profit (Est.)", value: "৳${totalProfit.toStringAsFixed(2)}", valueColor: Colors.green, isBold: true),
               ],
             ),
             const SizedBox(height: 80),
