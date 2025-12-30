@@ -383,6 +383,7 @@ class _CategoryStockCard extends StatelessWidget {
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
+          // Label Text
           Text(
             label,
             style: TextStyle(
@@ -390,12 +391,19 @@ class _CategoryStockCard extends StatelessWidget {
               color: isDark ? Colors.white60 : Colors.grey[700],
             ),
           ),
-          Text(
-            value,
-            style: TextStyle(
-              fontSize: 12,
-              fontWeight: FontWeight.bold,
-              color: valueColor ?? (isDark ? Colors.white70 : Colors.black87),
+          // Add a small gap
+          const SizedBox(width: 8),
+          // 👇 FIXED: Wrapped in Flexible to prevent overflow
+          Flexible(
+            child: Text(
+              value,
+              style: TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.bold,
+                color: valueColor ?? (isDark ? Colors.white70 : Colors.black87),
+              ),
+              overflow: TextOverflow.ellipsis, // Add ellipsis (...) if it's still too long
+              maxLines: 1,
             ),
           ),
         ],
