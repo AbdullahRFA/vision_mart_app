@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
@@ -22,6 +23,72 @@ class _DueScreenState extends ConsumerState<DueScreen> {
   void dispose() {
     _searchController.dispose();
     super.dispose();
+  }
+
+  // 👇 NEW: Handle Deadline Logic (Set, Edit, Delete)
+  void _handleDeadline(String saleId, DateTime? currentDeadline) async {
+    final now = DateTime.now();
+    final initialDate = currentDeadline ?? now;
+
+    // 1. If deadline exists, ask to Edit or Delete
+    if (currentDeadline != null) {
+      final action = await showDialog<String>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: const Text("Manage Deadline"),
+          content: Text("Current Deadline:\n${DateFormat('dd MMM yyyy, hh:mm a').format(currentDeadline)}"),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx, 'delete'),
+              child: const Text("Delete Deadline", style: TextStyle(color: Colors.red)),
+            ),
+            TextButton(
+              onPressed: () => Navigator.pop(ctx, 'edit'),
+              child: const Text("Change Date"),
+            ),
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text("Cancel"),
+            ),
+          ],
+        ),
+      );
+
+      if (action == 'delete') {
+        await ref.read(dueRepositoryProvider).updatePaymentDeadline(saleId, null);
+        return;
+      }
+      if (action != 'edit') return;
+    }
+
+    // 2. Pick Date
+    if (!mounted) return;
+    final pickedDate = await showDatePicker(
+      context: context,
+      initialDate: initialDate,
+      firstDate: now,
+      lastDate: DateTime(2100),
+    );
+    if (pickedDate == null) return;
+
+    // 3. Pick Time
+    if (!mounted) return;
+    final pickedTime = await showTimePicker(
+      context: context,
+      initialTime: TimeOfDay.fromDateTime(initialDate),
+    );
+    if (pickedTime == null) return;
+
+    // 4. Combine & Save
+    final finalDateTime = DateTime(
+      pickedDate.year,
+      pickedDate.month,
+      pickedDate.day,
+      pickedTime.hour,
+      pickedTime.minute,
+    );
+
+    await ref.read(dueRepositoryProvider).updatePaymentDeadline(saleId, finalDateTime);
   }
 
   @override
@@ -74,7 +141,7 @@ class _DueScreenState extends ConsumerState<DueScreen> {
 
           return Column(
             children: [
-              // 👇 NEW: SEARCH BAR
+              // SEARCH BAR
               Padding(
                 padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
                 child: TextField(
@@ -169,12 +236,17 @@ class _DueScreenState extends ConsumerState<DueScreen> {
                     final Timestamp? ts = invoice['timestamp'];
                     final dateStr = ts != null ? DateFormat('dd MMM yyyy').format(ts.toDate()) : 'Unknown Date';
 
+                    // 👇 Extract Deadline from Firestore Timestamp
+                    final Timestamp? deadlineTs = invoice['paymentDeadline'];
+                    final DateTime? deadline = deadlineTs?.toDate();
+
                     return _DueCard(
                       sale: invoice,
                       remainingDue: remainingDue,
                       totalAmount: totalAmount,
                       itemCount: itemCount,
                       dateStr: dateStr,
+                      deadline: deadline, // Pass deadline
                       onTap: () {
                         Navigator.push(
                           context,
@@ -189,6 +261,7 @@ class _DueScreenState extends ConsumerState<DueScreen> {
                         );
                       },
                       onPay: () => _showPaymentDialog(context, ref, invoice, remainingDue),
+                      onManageDeadline: () => _handleDeadline(invoice['saleId'] ?? invoice['id'], deadline), // Pass callback
                     );
                   },
                 ),
@@ -364,8 +437,10 @@ class _DueCard extends StatelessWidget {
   final double totalAmount;
   final int itemCount;
   final String dateStr;
+  final DateTime? deadline; // 👈 NEW Parameter
   final VoidCallback onPay;
   final VoidCallback onTap;
+  final VoidCallback onManageDeadline; // 👈 NEW Callback
 
   const _DueCard({
     required this.sale,
@@ -373,8 +448,10 @@ class _DueCard extends StatelessWidget {
     required this.totalAmount,
     required this.itemCount,
     required this.dateStr,
+    this.deadline,
     required this.onPay,
     required this.onTap,
+    required this.onManageDeadline,
   });
 
   @override
@@ -401,50 +478,93 @@ class _DueCard extends StatelessWidget {
           borderRadius: BorderRadius.circular(16),
           child: Padding(
             padding: const EdgeInsets.all(16.0),
-            child: Row(
+            child: Column(
               children: [
-                CircleAvatar(
-                  radius: 24,
-                  backgroundColor: Colors.red.withOpacity(0.1),
-                  child: const Icon(Icons.receipt_long_rounded, color: Colors.red),
-                ),
-                const SizedBox(width: 16),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        sale['customerName'] ?? 'Unknown',
-                        style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
-                      ),
-                      const SizedBox(height: 4),
-                      Row(
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    CircleAvatar(
+                      radius: 24,
+                      backgroundColor: Colors.red.withOpacity(0.1),
+                      child: const Icon(Icons.receipt_long_rounded, color: Colors.red),
+                    ),
+                    const SizedBox(width: 16),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Icon(Icons.phone_android_rounded, size: 14, color: isDark ? Colors.white54 : Colors.grey),
-                          const SizedBox(width: 4),
-                          Text(sale['customerPhone'] ?? 'N/A', style: TextStyle(fontSize: 12, color: isDark ? Colors.white54 : Colors.grey)),
+                          Text(
+                            sale['customerName'] ?? 'Unknown',
+                            style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                          ),
+                          const SizedBox(height: 4),
+                          Row(
+                            children: [
+                              Icon(Icons.phone_android_rounded, size: 14, color: isDark ? Colors.white54 : Colors.grey),
+                              const SizedBox(width: 4),
+                              Text(sale['customerPhone'] ?? 'N/A', style: TextStyle(fontSize: 12, color: isDark ? Colors.white54 : Colors.grey)),
+                            ],
+                          ),
+                          const SizedBox(height: 2),
+                          Text(
+                            "$dateStr • $itemCount items (Batch)",
+                            style: TextStyle(fontSize: 12, color: isDark ? Colors.white30 : Colors.grey[400]),
+                          ),
                         ],
                       ),
-                      const SizedBox(height: 2),
-                      Text(
-                        "$dateStr • $itemCount items (Batch)",
-                        style: TextStyle(fontSize: 12, color: isDark ? Colors.white30 : Colors.grey[400]),
-                      ),
-                    ],
-                  ),
+                    ),
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.end,
+                      children: [
+                        Text(
+                          "Due: ৳${remainingDue.toStringAsFixed(0)}",
+                          style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: Colors.red),
+                        ),
+                        Text(
+                          "Total: ৳${totalAmount.toStringAsFixed(0)}",
+                          style: TextStyle(fontSize: 12, color: isDark ? Colors.white30 : Colors.grey),
+                        ),
+                      ],
+                    ),
+                  ],
                 ),
-                Column(
-                  crossAxisAlignment: CrossAxisAlignment.end,
+
+                const Divider(height: 24, color: Colors.grey),
+
+                // 👇 BOTTOM ACTION ROW: Countdown & Pay Button
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    Text(
-                      "Due: ৳${remainingDue.toStringAsFixed(0)}",
-                      style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: Colors.red),
+                    // DEADLINE TIMER SECTION
+                    Expanded(
+                      child: InkWell(
+                        onTap: onManageDeadline,
+                        borderRadius: BorderRadius.circular(8),
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(vertical: 8.0, horizontal: 4),
+                          child: deadline == null
+                              ? Row(
+                            children: [
+                              Icon(Icons.timer_outlined, size: 18, color: Colors.grey),
+                              const SizedBox(width: 6),
+                              Text(
+                                "Set Deadline",
+                                style: TextStyle(
+                                  color: Colors.blueAccent,
+                                  fontWeight: FontWeight.w500,
+                                  fontSize: 13,
+                                ),
+                              ),
+                            ],
+                          )
+                              : _CountdownTimer(deadline: deadline!),
+                        ),
+                      ),
                     ),
-                    Text(
-                      "Total: ৳${totalAmount.toStringAsFixed(0)}",
-                      style: TextStyle(fontSize: 12, color: isDark ? Colors.white30 : Colors.grey),
-                    ),
-                    const SizedBox(height: 12),
+
+                    const SizedBox(width: 10),
+
+                    // PAY BUTTON
                     InkWell(
                       onTap: onPay,
                       borderRadius: BorderRadius.circular(20),
@@ -481,6 +601,124 @@ class _DueCard extends StatelessWidget {
           ),
         ),
       ),
+    );
+  }
+}
+
+// 👇 NEW: Real-time Countdown Widget with requested formatting
+class _CountdownTimer extends StatefulWidget {
+  final DateTime deadline;
+  const _CountdownTimer({required this.deadline});
+
+  @override
+  State<_CountdownTimer> createState() => _CountdownTimerState();
+}
+
+class _CountdownTimerState extends State<_CountdownTimer> {
+  late Timer _timer;
+  late Duration _diff;
+
+  @override
+  void initState() {
+    super.initState();
+    _calculateDiff();
+    _timer = Timer.periodic(const Duration(seconds: 1), (timer) {
+      if (mounted) _calculateDiff();
+    });
+  }
+
+  void _calculateDiff() {
+    setState(() {
+      _diff = widget.deadline.difference(DateTime.now());
+    });
+  }
+
+  @override
+  void dispose() {
+    _timer.cancel();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_diff.isNegative) {
+      return Row(
+        children: [
+          const Icon(Icons.warning_amber_rounded, color: Colors.red, size: 18),
+          const SizedBox(width: 6),
+          const Text(
+            "Overdue",
+            style: TextStyle(color: Colors.red, fontWeight: FontWeight.bold, fontSize: 13),
+          ),
+        ],
+      );
+    }
+
+    // --- CUSTOM CALCULATION FOR YEAR/MONTH/DAY ---
+    // Standard Duration does not support Years/Months directly.
+    // We calculate the calendar difference accurately.
+    DateTime now = DateTime.now();
+    DateTime target = widget.deadline;
+
+    int years = target.year - now.year;
+    int months = target.month - now.month;
+    int days = target.day - now.day;
+
+    if (days < 0) {
+      months--;
+      // Approximate days in previous month
+      final prevMonth = DateTime(target.year, target.month - 1);
+      final daysInPrevMonth = DateUtils.getDaysInMonth(prevMonth.year, prevMonth.month);
+      days += daysInPrevMonth;
+    }
+
+    if (months < 0) {
+      years--;
+      months += 12;
+    }
+
+    // Time parts
+    int hours = _diff.inHours % 24;
+    int minutes = _diff.inMinutes % 60;
+    int seconds = _diff.inSeconds % 60;
+
+    // Build the string: "2 years 3 month 20 day 6 hours 45 minutes and 30 seconds left"
+    List<String> parts = [];
+    if (years > 0) parts.add("$years years");
+    if (months > 0) parts.add("$months month");
+    if (days > 0) parts.add("$days day");
+    if (hours > 0) parts.add("$hours hours");
+    if (minutes > 0) parts.add("$minutes minutes");
+
+    // Always show seconds if it's less than a month away, otherwise optional, but requested format implies full detail.
+    String lastPart = "and $seconds seconds left";
+
+    // Just show top 3 significant units to avoid too long string?
+    // User requested full string. Let's try to fit it or use wrap.
+    String fullString = "";
+    if (parts.isNotEmpty) {
+      fullString = "${parts.join(' ')} $lastPart";
+    } else {
+      fullString = "$seconds seconds left";
+    }
+
+    return Row(
+      children: [
+        const Icon(Icons.av_timer_rounded, size: 18, color: Colors.orange),
+        const SizedBox(width: 6),
+        Flexible(
+          child: Text(
+            fullString,
+            style: const TextStyle(
+              color: Colors.orange,
+              fontWeight: FontWeight.bold,
+              fontSize: 12,
+            ),
+            overflow: TextOverflow.ellipsis,
+            maxLines: 2, // Allow wrapping for long duration string
+          ),
+        ),
+      ],
     );
   }
 }

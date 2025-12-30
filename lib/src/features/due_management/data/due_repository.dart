@@ -64,6 +64,13 @@ class DueRepository {
 
     await batch.commit();
   }
+
+  // 3. 👇 NEW: Update Payment Deadline (For Countdown Feature)
+  Future<void> updatePaymentDeadline(String saleId, DateTime? deadline) async {
+    await _firestore.collection('sales_invoices').doc(saleId).update({
+      'paymentDeadline': deadline != null ? Timestamp.fromDate(deadline) : null,
+    });
+  }
 }
 
 final dueStreamProvider = StreamProvider<List<Map<String, dynamic>>>((ref) {
