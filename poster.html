@@ -1,0 +1,398 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Research Poster - Mango Classification</title>
+    <style>
+        /* POSTER SETUP FOR A0 SIZE (Landscape) */
+        @page {
+            size: 48in 36in; /* Standard Conference Poster Size */
+            margin: 0;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            margin: 0;
+            padding: 0;
+            background-color: #f4f4f4;
+            color: #333;
+            width: 48in;
+            height: 36in;
+            box-sizing: border-box;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden; /* Ensures no scrollbars on print */
+        }
+
+        /* HEADER SECTION */
+        header {
+            background-color: #003366; /* Academic Navy Blue */
+            color: white;
+            padding: 2rem 4rem;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            height: 12%;
+            border-bottom: 8px solid #DD8452; /* Accent Orange */
+        }
+
+        .header-content {
+            text-align: center;
+            flex-grow: 1;
+        }
+
+        h1 {
+            font-size: 3.5rem;
+            margin: 0;
+            text-transform: uppercase;
+            font-weight: 800;
+            letter-spacing: 2px;
+        }
+
+        h2.authors {
+            font-size: 1.8rem;
+            margin-top: 15px;
+            font-weight: 400;
+        }
+
+        h3.affiliation {
+            font-size: 1.4rem;
+            margin-top: 5px;
+            color: #ccc;
+            font-weight: 300;
+        }
+
+        .logo-placeholder {
+            width: 150px;
+            height: 150px;
+            background-color: white;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: bold;
+            color: #003366;
+            text-align: center;
+            font-size: 0.8rem;
+        }
+
+        /* MAIN CONTENT GRID (3 COLUMNS) */
+        .container {
+            display: grid;
+            grid-template-columns: 1fr 1.2fr 1fr; /* Center column slightly wider */
+            gap: 2rem;
+            padding: 2rem;
+            height: 88%;
+        }
+
+        .column {
+            display: flex;
+            flex-direction: column;
+            gap: 2rem;
+        }
+
+        /* CARD STYLING */
+        .card {
+            background: white;
+            padding: 1.5rem;
+            border-radius: 10px;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+            border-top: 10px solid #003366;
+            flex-grow: 1;
+        }
+
+        h3.card-title {
+            background-color: #e0e0e0;
+            color: #003366;
+            padding: 10px 15px;
+            margin: -1.5rem -1.5rem 1rem -1.5rem; /* Stretch to edges */
+            border-top-left-radius: 5px;
+            border-top-right-radius: 5px;
+            font-size: 1.6rem;
+            text-transform: uppercase;
+            font-weight: 700;
+        }
+
+        /* TEXT STYLING */
+        p, li {
+            font-size: 1.1rem; /* Readable from distance */
+            line-height: 1.5;
+            text-align: justify;
+        }
+
+        ul {
+            padding-left: 20px;
+        }
+
+        li {
+            margin-bottom: 8px;
+        }
+
+        /* VISUALS STYLING */
+        .chart-placeholder {
+            width: 100%;
+            height: 350px;
+            background-color: #f9f9f9;
+            border: 2px dashed #ccc;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: #666;
+            font-size: 1.5rem;
+            margin-bottom: 1rem;
+            position: relative;
+        }
+        
+        /* Simulating the Bar Chart */
+        .bar-chart-sim {
+            display: flex;
+            align-items: flex-end;
+            gap: 20px;
+            height: 300px;
+            padding: 20px;
+        }
+        .bar-group { display: flex; gap: 5px; flex-direction: column; align-items: center; }
+        .bar { width: 30px; border-radius: 5px 5px 0 0; }
+        .b-blue { background: #4c72b0; height: 150px; }
+        .b-orange { background: #dd8452; height: 280px; } /* Taller */
+
+        /* TABLE STYLING */
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 1rem;
+            font-size: 1.2rem;
+        }
+
+        th {
+            background-color: #003366;
+            color: white;
+            padding: 12px;
+            text-align: left;
+        }
+
+        td {
+            border-bottom: 1px solid #ddd;
+            padding: 12px;
+            background-color: #f9f9f9;
+        }
+
+        .highlight-row {
+            background-color: #e8f5e9; /* Light Green */
+            font-weight: bold;
+            border: 2px solid #4CAF50;
+        }
+
+        .highlight-text {
+            color: #2e7d32;
+        }
+
+        /* RESULTS HIGHLIGHT BOX */
+        .results-box {
+            display: flex;
+            justify-content: space-around;
+            margin-bottom: 1rem;
+        }
+
+        .stat-item {
+            text-align: center;
+            background: #003366;
+            color: white;
+            padding: 15px;
+            border-radius: 8px;
+            width: 30%;
+        }
+
+        .stat-val { font-size: 2.5rem; font-weight: bold; color: #ffab40; }
+        .stat-label { font-size: 1rem; text-transform: uppercase; }
+
+        /* FOOTER */
+        .footer-ref {
+            font-size: 0.9rem;
+            color: #555;
+            margin-top: auto;
+            border-top: 1px solid #ccc;
+            padding-top: 10px;
+        }
+
+    </style>
+</head>
+<body>
+
+    <!-- Header -->
+    <header>
+        <div class="logo-placeholder">University<br>Logo</div>
+        <div class="header-content">
+            <h1>Benchmarking Lightweight CNNs for Real-Time Mango Classification</h1>
+            <h2 class="authors">Your Name  •  Supervisor Name  •  Co-Author Name</h2>
+            <h3 class="affiliation">Department of Computer Science and Engineering, Your University Name</h3>
+        </div>
+        <div class="logo-placeholder">Dept.<br>Logo</div>
+    </header>
+
+    <!-- Main Grid -->
+    <div class="container">
+
+        <!-- Column 1: Intro & Methods -->
+        <div class="column">
+            <div class="card">
+                <h3 class="card-title">1. Introduction</h3>
+                <p><strong>The Context:</strong> Bangladesh produces over 1 million tons of mangoes annually. Indigenous varieties like <em>Amrapali</em> and <em>Harivanga</em> are economically vital but visually similar.</p>
+                <p><strong>The Problem:</strong> Manual grading is error-prone. Existing Deep Learning models (VGG16, ResNet) are too computationally expensive for the low-cost smartphones used by rural farmers.</p>
+                <p><strong>Objective:</strong> To benchmark <strong>MobileNetV3</strong> (Proposed) against <strong>MobileNetV2</strong> (Baseline) for high-accuracy, offline classification on edge devices.</p>
+            </div>
+
+            <div class="card" style="flex-grow: 2;">
+                <h3 class="card-title">2. Methodology</h3>
+                <ul>
+                    <li><strong>Dataset:</strong> "Mangifera2012" (2,012 images, 10 classes).</li>
+                    <li><strong>Augmentation:</strong> Rotation (±20°), Zoom, Flip.</li>
+                </ul>
+                <div style="background: #e3f2fd; padding: 15px; border-left: 5px solid #2196F3; margin: 10px 0;">
+                    <strong>🚀 Novelty: Dynamic Preprocessing</strong><br>
+                    We implemented a conditional pipeline to handle input disparities:<br>
+                    • <strong>MobileNetV2:</strong> Scaled Inputs [-1, 1]<br>
+                    • <strong>MobileNetV3:</strong> Raw Inputs [0, 255]
+                </div>
+                <div class="chart-placeholder" style="height: 200px;">
+                    <svg viewBox="0 0 400 200" style="width:100%; height:100%;">
+                        <!-- Simple Flowchart Simulation -->
+                        <rect x="10" y="80" width="80" height="40" fill="#fff9c4" stroke="#fbc02d" stroke-width="2"/>
+                        <text x="50" y="105" text-anchor="middle" font-size="12">Input Img</text>
+                        
+                        <polygon points="120,100 140,80 160,100 140,120" fill="#e8f5e9" stroke="green"/>
+                        
+                        <rect x="180" y="50" width="80" height="40" fill="#f3e5f5" stroke="purple"/>
+                        <text x="220" y="75" text-anchor="middle" font-size="10">MobileNetV2</text>
+                        
+                        <rect x="180" y="110" width="80" height="40" fill="#f3e5f5" stroke="purple"/>
+                        <text x="220" y="135" text-anchor="middle" font-size="10">MobileNetV3</text>
+                        
+                        <rect x="300" y="80" width="80" height="40" fill="#ffebee" stroke="red"/>
+                        <text x="340" y="105" text-anchor="middle" font-size="12">Classification</text>
+                        
+                        <!-- Lines -->
+                        <line x1="90" y1="100" x2="120" y2="100" stroke="black" marker-end="url(#arrow)"/>
+                    </svg>
+                    <p style="position:absolute; bottom:5px; font-size:0.8rem;">Fig 1: System Pipeline</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- Column 2: Results (Visual Heavy) -->
+        <div class="column">
+            <div class="card">
+                <h3 class="card-title">3. Quantitative Results</h3>
+                
+                <div class="results-box">
+                    <div class="stat-item">
+                        <div class="stat-val">90.25%</div>
+                        <div class="stat-label">Accuracy</div>
+                    </div>
+                    <div class="stat-item">
+                        <div class="stat-val">11.3 ms</div>
+                        <div class="stat-label">Speed</div>
+                    </div>
+                    <div class="stat-item">
+                        <div class="stat-val">4.7 MB</div>
+                        <div class="stat-label">Size</div>
+                    </div>
+                </div>
+
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Metric</th>
+                            <th>MobileNetV2 (Base)</th>
+                            <th>MobileNetV3 (Proposed)</th>
+                            <th>Improvement</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td>Accuracy</td>
+                            <td>85.25%</td>
+                            <td class="highlight-text">90.25%</td>
+                            <td><strong>+5.0%</strong></td>
+                        </tr>
+                        <tr>
+                            <td>Model Size</td>
+                            <td>10.86 MB</td>
+                            <td class="highlight-text">4.76 MB</td>
+                            <td><strong>56% Smaller</strong></td>
+                        </tr>
+                        <tr class="highlight-row">
+                            <td>Inference Time</td>
+                            <td>35.0 ms</td>
+                            <td>11.3 ms</td>
+                            <td><strong>3x Faster</strong></td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+
+            <div class="card" style="flex-grow: 2;">
+                <h3 class="card-title">4. Class-wise Performance</h3>
+                <!-- Place your Chart Image Here -->
+                <div class="chart-placeholder">
+                    <!-- CSS Simulation of your Bar Chart -->
+                    <div class="bar-chart-sim">
+                        <div class="bar-group"><div class="bar b-blue" style="height:50%"></div><div class="bar b-orange" style="height:85%"></div><span style="font-size:0.7rem">Harivanga</span></div>
+                        <div class="bar-group"><div class="bar b-blue" style="height:80%"></div><div class="bar b-orange" style="height:99%"></div><span style="font-size:0.7rem">Amrapali</span></div>
+                        <div class="bar-group"><div class="bar b-blue" style="height:52%"></div><div class="bar b-orange" style="height:71%"></div><span style="font-size:0.7rem">Nilambori</span></div>
+                        <div class="bar-group"><div class="bar b-blue" style="height:69%"></div><div class="bar b-orange" style="height:82%"></div><span style="font-size:0.7rem">Langra</span></div>
+                         <div style="position:absolute; top: 10px; right: 20px; font-size: 0.8rem;">
+                            <span style="color:#4c72b0">■ MobileNetV2</span> <span style="color:#dd8452">■ MobileNetV3</span>
+                        </div>
+                    </div>
+                </div>
+                <p><strong>Analysis:</strong> The proposed model (Orange) solved the "Recall Problem". Specifically, detection of the difficult <em>Harivanga</em> variety improved from 50% to <strong>85%</strong>.</p>
+            </div>
+        </div>
+
+        <!-- Column 3: Analysis & Conclusion -->
+        <div class="column">
+            <div class="card">
+                <h3 class="card-title">5. Error Analysis</h3>
+                <div class="chart-placeholder">
+                    <!-- Placeholder for Confusion Matrix -->
+                    <div style="display:grid; grid-template-columns: repeat(5, 1fr); gap:2px; width:60%; opacity:0.8;">
+                        <div style="background:#0d47a1; height:40px;"></div><div style="background:#e3f2fd; height:40px;"></div>
+                        <div style="background:#e3f2fd; height:40px;"></div><div style="background:#1565c0; height:40px;"></div>
+                        <!-- ... abstract grid -->
+                    </div>
+                    <p style="position:absolute; bottom: 5px;">Fig 3: Confusion Matrix (V3)</p>
+                </div>
+                <ul>
+                    <li><strong>Diagonal Strength:</strong> High accuracy across 9/10 classes.</li>
+                    <li><strong>Remaining Conflict:</strong> <em>Nilambori</em> vs <em>Bari-4</em> due to similar green skin texture.</li>
+                </ul>
+            </div>
+
+            <div class="card">
+                <h3 class="card-title">6. Conclusion</h3>
+                <p>This research confirms that <strong>MobileNetV3-Small</strong> is the optimal architecture for Bangladeshi agriculture.</p>
+                <div style="background-color: #fff3e0; border: 2px solid #ff9800; padding: 10px; border-radius: 5px; margin-top: 10px;">
+                    It successfully balances <strong>Accuracy (90%)</strong> with <strong>Efficiency (11ms)</strong>, proving that heavy models are unnecessary for this task.
+                </div>
+            </div>
+
+            <div class="card">
+                <h3 class="card-title">7. Future Work</h3>
+                <ul>
+                    <li>🛠 <strong>App Development:</strong> Integration into a Flutter-based Android application.</li>
+                    <li>🦠 <strong>Disease Detection:</strong> Expanding the dataset to include mango rot and anthracnose.</li>
+                </ul>
+                <div class="footer-ref">
+                    <strong>References:</strong><br>
+                    [1] R. K. Bharati et al., "A comprehensive image dataset of Bangladeshi mango variety," Data in Brief, 2025.<br>
+                    [2] Howard et al., "Searching for MobileNetV3," ICCV, 2019.
+                </div>
+            </div>
+        </div>
+
+    </div>
+
+</body>
+</html>

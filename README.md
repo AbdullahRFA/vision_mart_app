@@ -1,88 +1,108 @@
 
----
 
 # 🛒 Vision Mart - Inventory & POS Management System
 
-**Vision Mart** is a robust, Flutter-based Inventory and Point of Sale (POS) management application designed for small to medium-sized retail businesses. It streamlines daily operations including stock management, sales invoicing, due tracking (Khata), expense recording, and business analytics.
+**Vision Mart** is a robust, Flutter-based Inventory and Point of Sale (POS) management application designed for small to medium-sized retail businesses (specifically optimized for Electronics/Appliance stores). It streamlines daily operations including stock management, sales invoicing, due tracking (Khata), expense recording, and business analytics.
 
-Built with **Flutter** and **Firebase**, utilizing **Riverpod** for state management to ensure a scalable and reactive architecture.
+Built with **Flutter** and **Firebase**, utilizing **Riverpod** for state management to ensure a scalable, reactive, and transactional (ACID-compliant) architecture.
 
 ---
 
-## 📱 Features
+## 📱 Key Features
 
-### 📦 Inventory Management
+### 📦 Advanced Inventory Management
 
-* **Batch Receiving:** Efficiently add multiple products to stock via a batch inward challan.
-* **Stock Tracking:** Real-time updates on current stock levels.
-* **Audit Logs:** Automatically tracks who added, updated, or deleted products.
-* **Product Management:** Edit product details, set MRP, buying price, and commission percentages.
+* **Batch Receiving:** Efficiently add multiple products at once with a "Batch Inward Challan" system.
+* **Smart Pricing Calculator:** Auto-calculates Commission % or Flat Discount based on MRP and Buying Price inputs.
+* **Stock History & Logs:** View granular history of every batch received.
+* **Correction Mode:** Unique "Correct Mistake" logic that handles moving stock between models or updating details using ACID transactions to ensure data integrity.
+* **Challan Printing:** Generate and print PDF Inward Challans for physical record-keeping.
+* **Low Stock Alerts:** Visual indicators for items running low on quantity.
 
 ### 💰 Point of Sale (POS)
 
-* **Cart System:** Add items to a cart, adjust quantities, and apply discounts.
-* **Stock Validation:** Prevents selling more items than available in inventory.
-* **Invoicing:** Generates professional **PDF Invoices** with support for thermal printing.
-* **Customer Address:** Captures customer details including name, phone, and address for delivery.
+* **Dynamic Cart System:** Add items, adjust quantities, and toggle between Percentage (%) or Flat (Tk) discounts per item.
+* **Global Discounting:** Apply a global discount to the total bill which automatically prorates (distributes) the discount across all items for accurate profit calculation.
+* **Invoice Preview:** Review the invoice PDF before finalizing the sale to prevent errors.
+* **Stock Validation:** Real-time checks prevent selling more items than physically available.
+* **Sales Correction:** Edit existing invoices or **Delete Invoices** with automatic **Stock Restoration** (reverts items back to inventory).
 
-### 📒 Due Management (Khata)
+### 📒 Due Management (Khata) & Deadlines
 
 * **Track Dues:** Monitor customers with outstanding balances.
-* **Partial Payments:** Record partial payments and automatically calculate remaining dues.
-* **Payment Receipts:** Generate PDF money receipts for every payment received.
-* **Auto-Clearance:** Automatically marks transactions as "Cash" when the full due is cleared.
+* **Payment Deadlines:** Set specific payment dates. Includes a **Countdown Timer** (e.g., "3 days left" or "Overdue") for urgency.
+* **Searchable List:** Quickly find dues by Customer Name, Phone, or Invoice ID.
+* **Partial Payments:** Record partial payments; the system automatically calculates the remaining balance.
+* **Money Receipts:** Generate professional PDF money receipts for every payment transaction.
 
-### 📊 Analytics & Reports
+### 📊 Analytics & Business Intelligence
 
-* **Business Dashboard:** View quick summaries of sales and profit.
-* **Date Filters:** Analyze sales by Today, This Week, This Month, or custom date ranges.
-* **Financial Analysis:** View Revenue, Net Profit, and Total Items sold.
-* **Sales History:** Reprint invoices from historical data.
+* **Live Dashboard:** Real-time overview of:
+* **Current Stock Value:** Value of unsold assets.
+* **Investment:** Cost of goods sold.
+* **Net Profit:** Actual earnings after expenses.
+
+
+* **Advanced Reporting:**
+* **Profit/Loss Filters:** Toggle to see only profitable sales or loss-making transactions.
+* **Search:** Find specific historical invoices by ID or Customer Name.
+
+
+* **Date Ranges:** Analyze by Today, Yesterday, This Week, Month, Year, or Custom Range.
 
 ### 💸 Expense Tracking
 
-* **Categorization:** Track expenses by category (Rent, Salary, Transport, etc.).
-* **Daily Grouping:** View expenses grouped by date.
+* **Batch Entry:** Add multiple expense items (e.g., Rent, Tea, Salary) in one go.
+* **Expense Reports:** Generate PDF reports for expenses within specific periods.
+* **Categorization:** Pre-defined categories for easier financial sorting.
+
+### 🔐 Authentication & Security
+
+* **Admin Login:** Secure Email/Password authentication via Firebase Auth.
+* **Password Reset:** Built-in "Forgot Password" flow to send reset emails.
+* **Transactional Integrity:** Uses Firestore Transactions/Batches to ensure money and stock numbers never go out of sync during failures.
 
 ### 🎨 UI & UX
 
-* **Dark Mode Support:** Fully optimized high-contrast Dark Mode (Red/Green/Yellow/White palette) for low-light usage.
-* **Responsive Design:** Clean Material 3 design.
+* **Adaptive Theme:** Fully optimized high-contrast **Dark Mode** (Slate/Blue/Yellow palette) and Clean Light Mode.
+* **Material 3 Design:** Modern UI components, cards, and typography.
+* **Responsive Layouts:** Optimized for tablets and phones.
 
 ---
 
 ## 🛠️ Tech Stack
 
-* **Framework:** [Flutter](https://flutter.dev/) (SDK 3.9+)
+* **Framework:** [Flutter](https://flutter.dev/)
 * **Language:** [Dart](https://dart.dev/)
 * **Backend:** [Firebase](https://firebase.google.com/)
-* **Firebase Auth:** Admin authentication.
-* **Cloud Firestore:** Real-time NoSQL database.
+* **Authentication:** Admin management.
+* **Cloud Firestore:** NoSQL Database (Heavily uses `runTransaction` and `WriteBatch`).
 
 
 * **State Management:** [Flutter Riverpod](https://pub.dev/packages/flutter_riverpod) (v2.x)
-* **PDF & Printing:** `pdf`, `printing` packages.
-* **Utilities:** `intl` (Formatting), `google_fonts`.
+* **PDF Generation:** `pdf` & `printing` packages (Thermal & A4 support).
+* **Formatting:** `intl` (Currency and Date formatting).
 
 ---
 
 ## 📂 Project Structure
 
-The project follows a **Feature-First** architecture for better scalability and maintainability:
+The project follows a **Feature-First (Layered)** architecture:
 
 ```text
 lib/
 ├── firebase_options.dart      # Firebase Configuration
-├── main.dart                  # Entry point & Theme setup
+├── main.dart                  # Entry point & Theme Provider
 └── src/
     ├── services/              # Global services (AuthService)
     └── features/
-        ├── authentication/    # Login screen & Auth Logic
-        ├── inventory/         # Product Model, Repository, Screens
-        ├── sales/             # POS Logic, Cart, PDF Generation
-        ├── analytics/         # Reports & Charts
-        ├── expenses/          # Expense Tracking
-        └── due_management/    # Due collection & Receipts
+        ├── authentication/    # Login, Forgot Password
+        ├── inventory/         # Product Model, Repo, Add/Edit/Receive Screens
+        ├── sales/             # POS Cart, Discount Logic, PDF Generator
+        ├── analytics/         # Dashboard, Profit Calculation, Sales Detail
+        ├── expenses/          # Batch Expense Entry, Reports
+        └── due_management/    # Deadline Timer, Payment Processing
+
 
 ```
 
@@ -90,12 +110,9 @@ lib/
 
 ## 🚀 Getting Started
 
-Follow these steps to run the project locally.
-
 ### Prerequisites
 
 * Flutter SDK installed.
-* Dart SDK installed.
 * A Firebase Project created.
 
 ### Installation
@@ -117,8 +134,8 @@ flutter pub get
 
 3. **Firebase Setup:**
 * This project relies on Firebase. You must configure your own Firebase project.
-* Install the Firebase CLI and run `flutterfire configure` to generate the correct `firebase_options.dart` for your project.
-* *Note: Ensure Authentication (Email/Password) and Firestore Database are enabled in your Firebase Console.*
+* Run `flutterfire configure` to generate the `firebase_options.dart` file.
+* **Enable:** Authentication (Email/Password) and Cloud Firestore in your Firebase Console.
 
 
 4. **Run the app:**
@@ -133,27 +150,33 @@ flutter run
 
 ## 📸 Screenshots
 
-| Dashboard (Light) | Inventory (Dark) | POS Cart | Invoice PDF |
-| --- | --- | --- | --- |
-| *(Add Image)* | *(Add Image)* | *(Add Image)* | *(Add Image)* |
+| Dashboard-1 | Dashboard-2 | Current stock |
+|:---:|:---:|:---:|
+| <img src="assets/ss/dash-1.jpg" width="250"> | <img src="assets/ss/dash-2.jpg" width="250"> | <img src="assets/ss/current stock.jpg" width="250"> |
+| Stock Detailed | Receive Stock | New Sale|
+|:---:|:---:|:---:|
+| <img src="assets/ss/stock detailed.jpg" width="250"> | <img src="assets//ss/receive stock.jpg" width="250"> | <img src="assets/ss/new sales.jpg" width="250"> |
+| Invoice Detailed | Sales Report All | Sales Report Profit Only |
+|:---:|:---:|:---:|
+| <img src="assets/ss/invoice detailed.jpg" width="250"> | <img src="assets/ss/sales report all.jpg" width="250"> | <img src="assets/ss/sales report only profit.jpg" width="250"> |
+| Sales Report Loss Only | Due List Screen | Due List Payment Dialog |
+|:---:|:---:|:---:|
+| <img src="assets/ss/sales report only lose.jpg" width="250"> | <img src="assets/ss/due list screen.jpg" width="250"> | <img src="assets/ss/due list payment dialog.jpg" width="250"> |
+| Expanse List | Add Expanse List Dialog |  |
+|:---:|:---:|:---:|
+| <img src="assets/ss/expanse.jpg" width="250"> | <img src="assets/ss/add expase dialog.jpg" width="250"> | <img src="" width="250"> |
 
 ---
 
 ## 📝 Configuration
 
-### Firestore Collections Schema
-
-The app automatically generates the following collections in Firestore:
-
-* `products`: Inventory items.
-* `sales`: Individual line-item sales records.
-* `sales_invoices`: Grouped invoice headers.
-* `inventory_logs`: History of stock movement.
-* `expenses`: Operational expenses.
-
 ### PDF Generation
 
-The app uses the `printing` package. It generates A4 size invoices for Sales and A6 size receipts for Due Payments. Ensure a PDF viewer or a connected printer is available on the device.
+The app generates:
+
+* **A4 Invoices:** For Sales and Inventory Challans.
+* **A6 Receipts:** For Due Payments (Money Receipts).
+* Ensure a PDF viewer is available on the device, or connect to a thermal/standard printer via the print preview dialog.
 
 ---
 
@@ -171,7 +194,7 @@ Contributions are welcome! Please follow these steps:
 
 ## 📄 License
 
-This project is licensed under the MIT License - see the [LICENSE](https://www.google.com/search?q=LICENSE) file for details.
+This project is licensed under the MIT License.
 
 ---
 
