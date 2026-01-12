@@ -2,6 +2,12 @@
 
 # 🛒 Vision Mart - Inventory & POS Management System
 
+![Flutter](https://img.shields.io/badge/Flutter-3.19-%2302569B.svg?style=for-the-badge&logo=Flutter&logoColor=white)
+![Dart](https://img.shields.io/badge/dart-3.0-%230175C2.svg?style=for-the-badge&logo=dart&logoColor=white)
+![Firebase](https://img.shields.io/badge/firebase-Cloud%20Firestore-%23039BE5.svg?style=for-the-badge&logo=firebase)
+![Riverpod](https://img.shields.io/badge/State-Riverpod-purple?style=for-the-badge)
+![License](https://img.shields.io/badge/License-MIT-green.svg?style=for-the-badge)
+
 **Vision Mart** is a robust, Flutter-based Inventory and Point of Sale (POS) management application designed for small to medium-sized retail businesses (specifically optimized for Electronics/Appliance stores). It streamlines daily operations including stock management, sales invoicing, due tracking (Khata), expense recording, and business analytics.
 
 Built with **Flutter** and **Firebase**, utilizing **Riverpod** for state management to ensure a scalable, reactive, and transactional (ACID-compliant) architecture.
@@ -153,15 +159,19 @@ flutter run
 | Dashboard-1 | Dashboard-2 | Current stock |
 |:---:|:---:|:---:|
 | <img src="assets/ss/dash-1.jpg" width="250"> | <img src="assets/ss/dash-2.jpg" width="250"> | <img src="assets/ss/current stock.jpg" width="250"> |
+
 | Stock Detailed | Receive Stock | New Sale|
 |:---:|:---:|:---:|
 | <img src="assets/ss/stock detailed.jpg" width="250"> | <img src="assets//ss/receive stock.jpg" width="250"> | <img src="assets/ss/new sales.jpg" width="250"> |
+
 | Invoice Detailed | Sales Report All | Sales Report Profit Only |
 |:---:|:---:|:---:|
 | <img src="assets/ss/invoice detailed.jpg" width="250"> | <img src="assets/ss/sales report all.jpg" width="250"> | <img src="assets/ss/sales report only profit.jpg" width="250"> |
+
 | Sales Report Loss Only | Due List Screen | Due List Payment Dialog |
 |:---:|:---:|:---:|
 | <img src="assets/ss/sales report only lose.jpg" width="250"> | <img src="assets/ss/due list screen.jpg" width="250"> | <img src="assets/ss/due list payment dialog.jpg" width="250"> |
+
 | Expanse List | Add Expanse List Dialog |  |
 |:---:|:---:|:---:|
 | <img src="assets/ss/expanse.jpg" width="250"> | <img src="assets/ss/add expase dialog.jpg" width="250"> | <img src="" width="250"> |
